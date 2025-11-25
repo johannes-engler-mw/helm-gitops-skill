@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apisix
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.apiseven.com
+    chart: apisix
+    targetRevision: 2.10.0
+    helm:
+      values: |
+        # Gateway configuration
+        gateway:
+          enabled: true
+          type: NodePort
+
+        # Ingress controller configuration
+        ingress-controller:
+          enabled: true
+          config:
+            apisix:
+              serviceNamespace: apisix
+
+        # etcd configuration (required dependency)
+        etcd:
+          enabled: true
+          replicaCount: 3
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apisix
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

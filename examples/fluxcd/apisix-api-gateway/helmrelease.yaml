@@ -1,0 +1,43 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: apisix
+  namespace: apisix
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: apisix
+      version: 2.10.0
+      sourceRef:
+        kind: HelmRepository
+        name: apisix
+        namespace: apisix
+      interval: 5m
+
+  values:
+    # Gateway configuration
+    gateway:
+      enabled: true
+      type: NodePort
+
+    # Ingress controller configuration
+    ingress-controller:
+      enabled: true
+      config:
+        apisix:
+          serviceNamespace: apisix
+
+    # etcd configuration (required dependency)
+    etcd:
+      enabled: true
+      replicaCount: 3
+
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+
+  upgrade:
+    remediation:
+      retries: 3

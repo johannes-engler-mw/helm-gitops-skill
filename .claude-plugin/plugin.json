@@ -1,0 +1,38 @@
+{
+  "name": "helm-gitops",
+  "version": "1.0.0",
+  "description": "Deploy official Helm charts to Kubernetes clusters using GitOps principles with ArgoCD or FluxCD",
+  "author": {
+    "name": "Johannes Engler"
+  },
+  "homepage": "https://github.com/johannes-engler-mw/helm-gitops-skill",
+  "repository": "https://github.com/johannes-engler-mw/helm-gitops-skill",
+  "license": "MIT",
+  "skills": [
+    {
+      "name": "helm-gitops",
+      "path": "helm-gitops/SKILL.md"
+    }
+  ],
+  "keywords": [
+    "helm",
+    "kubernetes",
+    "k8s",
+    "gitops",
+    "argocd",
+    "argo-cd",
+    "fluxcd",
+    "flux",
+    "deployment",
+    "charts",
+    "helm-charts",
+    "api-gateway",
+    "monitoring",
+    "ingress",
+    "prometheus",
+    "grafana",
+    "cert-manager",
+    "infrastructure",
+    "continuous-deployment"
+  ]
+}
