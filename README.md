@@ -9,11 +9,23 @@ This skill automates the process of adding Helm-based applications to your GitOp
 1. Identifying the application from your natural language request
 2. Finding official Helm charts and repository information via web search
 3. Detecting your existing GitOps repository structure and conventions
-4. Asking for deployment method preference (ArgoCD or FluxCD)
-5. Generating appropriate manifest files (Application or HelmRelease CRDs)
-6. Placing files in the correct location matching your repository patterns
+4. **Detecting secrets management solutions and adapting chart values automatically**
+5. Asking for deployment method preference (ArgoCD or FluxCD)
+6. Generating appropriate manifest files (Application or HelmRelease CRDs)
+7. Placing files in the correct location matching your repository patterns
 
 The skill handles common deployment scenarios including monitoring tools, API gateways, ingress controllers, cert-manager, databases, and any Helm-charted open-source applications.
+
+### Intelligent Secrets Management
+
+The skill automatically detects and adapts to your existing secrets management solution:
+
+- **External Secrets Operator (ESO)** - Syncs from Vault, AWS, GCP, Azure
+- **Sealed Secrets** - Encrypts secrets for Git storage
+- **SOPS** - Encrypts values files (native Flux support)
+- **Native Kubernetes Secrets** - For development/testing
+
+It scans your cluster and repository to identify which solution you're using, then generates appropriate manifests (ExternalSecret, SealedSecret, or SOPS-encrypted files) that integrate seamlessly with your deployment.
 
 ## Installation
 
@@ -94,6 +106,23 @@ helm-gitops-skill/
 ```
 
 ## Key Features
+
+### Automatic Secrets Management Detection
+
+The skill intelligently detects and adapts to your secrets management approach:
+
+**Three-Layer Detection:**
+1. **Cluster Detection** - Checks for installed solutions (ESO, Sealed Secrets) via kubectl
+2. **Repository Patterns** - Searches Git history for ExternalSecret, SealedSecret, or SOPS usage
+3. **Chart Analysis** - Identifies which Helm values contain secrets and whether chart supports `existingSecret`
+
+**Adaptive Generation:**
+- Generates ExternalSecret resources for ESO (supports Vault, AWS, GCP, Azure backends)
+- Creates SealedSecret templates with kubeseal instructions for Sealed Secrets
+- Produces SOPS-encrypted files with Flux decryption configuration
+- Provides secure templates for any detected solution
+
+The skill uses web search to get current implementation details for each solution, ensuring up-to-date patterns and best practices.
 
 ### Intelligent Repository Detection
 

@@ -11,6 +11,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 ### Fixed
 
+## [1.1.0] - 2025-11-26
+
+### Added
+- **Automatic Secrets Management Detection** - Three-layer detection strategy (cluster kubectl checks, repository pattern search, chart-specific secrets discovery)
+- **Support for Multiple Secrets Solutions**:
+  - External Secrets Operator (ESO) - Syncs from Vault, AWS, GCP, Azure
+  - Sealed Secrets - Encrypts secrets for Git storage
+  - SOPS - Encrypts values files (native Flux support)
+  - Native Kubernetes Secrets - Development/testing with warnings
+- **Web Search Integration for Secrets** - Uses web search for current implementation details instead of bundled docs (token-efficient approach)
+- **Adaptive Manifest Generation**:
+  - ExternalSecret + SecretStore for ESO
+  - SealedSecret templates with kubeseal commands
+  - SOPS-encrypted files with Flux Kustomization decryption
+  - Native Secret templates with migration recommendations
+- **Minimal Example** - PostgreSQL with ESO integration (`examples/fluxcd/postgresql-eso/`)
+
+### Changed
+- **SKILL.md** - Added Step 3.5 (Detect Secrets Management) between repository detection and deployment method
+- **SKILL.md Step 2** - Enhanced with secrets-focused search queries
+- **SKILL.md Step 5** - Added secrets adaptation patterns with web search strategy
+- **flux.md & argocd.md** - Added minimal secrets integration sections (~20 lines each) with web search references
+- **CLAUDE.md** - Added secrets detection strategy documentation
+- **README.md** - Added Intelligent Secrets Management feature highlight
+- **Token Efficiency** - Uses web search for implementation details instead of bundled documentation
+
+### Removed
+- Bundled secrets reference files (reduced ~2,400 lines) - Now uses web search for current patterns
+
+### Security
+- Never stores plaintext secrets in Git
+- Generates encrypted/reference-based resources (ExternalSecret, SealedSecret, SOPS-encrypted)
+- Strong warnings for native secrets in production
+- Recommends ESO or Sealed Secrets for production workloads
+
 ## [1.0.0] - 2025-11-25
 
 ### Added

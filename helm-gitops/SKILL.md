@@ -28,16 +28,20 @@ Extract the application name from user request. Examples:
 **Always search** to get current, accurate Helm chart information. Search queries:
 - `{app-name} official helm chart`
 - `{app-name} helm chart artifacthub`
+- `{app-name} helm secrets values` (for secrets discovery)
+- `{app-name} helm chart password configuration`
 
 Extract from search results:
-- **Repository URL** (e.g., `https://charts.bitnami.com/bitnami`)
+- **Repository URL** (e.g., `https://charts.apiseven.com`)
 - **Chart name** (e.g., `apisix`)
 - **Latest version** (or note if user should pin)
 - **Key configuration values** for common setups
 - **Dependencies** (e.g., etcd for APISIX)
 - **Chart type** (single component vs combined)
+- **Secret values** (passwords, API keys, tokens, certificates)
+- **existingSecret support** (whether chart supports external secret references)
 
-Prefer official charts from: ArtifactHub, vendor repos, Bitnami, or CNCF projects.
+Prefer official charts from: ArtifactHub, vendor repos, or CNCF projects.
 
 ### Combined Chart Pattern
 
@@ -119,6 +123,117 @@ infra/
 
 Adapt output to match existing conventions. If no clear pattern exists, suggest a sensible default and confirm with user.
 
+## Step 3.5: Detect Secrets Management
+
+After understanding the repository structure, detect which secrets management solution to use for chart values containing sensitive data.
+
+### Detection Process
+
+Execute a three-layer detection strategy to identify the appropriate secrets solution:
+
+#### Layer 1: Cluster Detection
+
+Check the cluster for installed secrets management solutions:
+
+```bash
+# External Secrets Operator (ESO)
+kubectl get crd externalsecrets.external-secrets.io 2>/dev/null
+kubectl get crd secretstores.external-secrets.io 2>/dev/null
+kubectl get deployment -n external-secrets external-secrets 2>/dev/null
+
+# Sealed Secrets
+kubectl get crd sealedsecrets.bitnami.com 2>/dev/null
+kubectl get deployment -n kube-system sealed-secrets-controller 2>/dev/null
+```
+
+Run these checks in parallel for performance (~2-5 seconds total). Cache results in memory for the current session.
+
+#### Layer 2: Repository Pattern Search
+
+Search the GitOps repository for secrets-related patterns:
+
+```bash
+# ESO patterns
+grep -r "kind: ExternalSecret\|kind: SecretStore" --include="*.yaml" -l 2>/dev/null | head -10
+
+# Sealed Secrets patterns
+grep -r "kind: SealedSecret" --include="*.yaml" -l 2>/dev/null | head -10
+
+# SOPS patterns
+grep -r "sops:\|ENC\[AES256_GCM" --include="*.yaml" -l 2>/dev/null | head -10
+
+# Native secrets (check for common usage)
+grep -r "kind: Secret" --include="*.yaml" -l 2>/dev/null | head -10
+```
+
+Count occurrences to identify the predominant pattern in use.
+
+#### Layer 3: Chart-Specific Secrets
+
+From Step 2 web search results, identify which Helm values contain secrets:
+- Values matching patterns: `*password*`, `*apiKey*`, `*token*`, `*secret*`, `*credential*`, `*tls.key*`, `*tls.crt*`
+- Check if chart supports `existingSecret` pattern (preferred for secrets management)
+- Identify secret value paths (e.g., `auth.password`, `adminPassword`)
+
+### Decision Logic
+
+Apply this priority order to determine which secrets solution to use:
+
+1. **If cluster has ESO + repo has ExternalSecret patterns** → Use ESO
+2. **If cluster has Sealed Secrets + repo has SealedSecret patterns** → Use Sealed Secrets
+3. **If repo has SOPS patterns** → Use Helm-Secrets+SOPS
+4. **If multiple solutions detected** → Ask user which to prefer (show usage context)
+5. **If none detected** → Ask user if they want to use native secrets or set up a solution
+
+### Ask User (Multiple Solutions Detected)
+
+If multiple solutions are found, prompt the user:
+
+> I detected multiple secrets management solutions in your environment:
+> - **External Secrets Operator** (found in: infrastructure/monitoring)
+> - **Sealed Secrets** (found in: applications/web-apps)
+>
+> Which solution would you prefer for deploying {app-name}?
+> 1. External Secrets Operator - Syncs from external providers (Vault, AWS, GCP, Azure)
+> 2. Sealed Secrets - Encrypts secrets for Git storage
+> 3. SOPS - Encrypts values files (Flux native support)
+> 4. Native Kubernetes Secrets - Not recommended for GitOps
+
+### Ask User (No Solution Detected)
+
+If no secrets management solution is found:
+
+> No secrets management solution detected in your cluster/repository.
+>
+> The {app-name} chart requires sensitive values (passwords, API keys).
+> How would you like to handle secrets?
+>
+> 1. **External Secrets Operator** (Recommended for production)
+>    - Syncs secrets from external providers
+>    - Secrets never stored in Git
+>    - Requires: ESO installation + backend (Vault/AWS/GCP/Azure)
+>
+> 2. **Sealed Secrets**
+>    - Encrypts secrets for safe Git storage
+>    - Good for GitOps workflows
+>    - Requires: Sealed Secrets controller installation
+>
+> 3. **SOPS** (Flux users)
+>    - Encrypts values files in Git
+>    - Native Flux support
+>    - Requires: SOPS configuration + encryption backend
+>
+> 4. **Native Kubernetes Secrets**
+>    - Simple but NOT recommended for GitOps
+>    - Secrets must be created manually (not stored in Git)
+
+**Next Step**: When a solution is chosen, use web search to get current implementation details:
+- ESO: Search `"External Secrets Operator {chart-name} kubernetes example"`
+- Sealed Secrets: Search `"Sealed Secrets kubeseal {chart-name} kubernetes"`
+- SOPS: Search `"SOPS FluxCD {chart-name} kubernetes"`
+
+This ensures up-to-date configuration patterns and best practices.
+
 ## Step 4: Ask Deployment Method
 
 If not specified in the request, ask:
@@ -134,15 +249,46 @@ Also clarify:
 
 ## Step 5: Generate Manifests
 
-Based on the chosen tool, read the appropriate reference:
+Based on the chosen tool and detected secrets solution, read the appropriate references:
 - **ArgoCD**: See [references/argocd.md](references/argocd.md)
 - **FluxCD**: See [references/flux.md](references/flux.md)
+
+For secrets integration, use web search to get current implementation patterns based on the detected solution.
 
 Key principles:
 - Pin chart versions for reproducibility
 - Use sensible defaults with clear comments for customization points
 - Include resource requests/limits recommendations if available from search
 - Add standard labels (app.kubernetes.io/name, app.kubernetes.io/component, etc.)
+- **Adapt values for secrets** based on detected solution (Step 3.5)
+
+### Secrets Values Adaptation
+
+Based on the detected secrets management solution, generate appropriate manifests. Use web search to find current implementation patterns:
+
+**For External Secrets Operator:**
+- Use chart's `existingSecret` pattern if supported
+- Generate ExternalSecret resource referencing external provider
+- Use HelmRelease `valuesFrom` to reference the secret
+- Web search: `"External Secrets Operator {chart-name} kubernetes example"`
+
+**For Sealed Secrets:**
+- Generate SealedSecret template with sealing instructions
+- Reference sealed secret in Helm values
+- Provide kubeseal commands in comments
+- Web search: `"Sealed Secrets kubeseal {chart-name} kubernetes"`
+
+**For SOPS:**
+- Generate encrypted values file template
+- Configure Flux Kustomization with SOPS decryption
+- Provide encryption workflow in README
+- Web search: `"SOPS FluxCD {chart-name} kubernetes"`
+
+**For Native Secrets:**
+- Generate Secret template with placeholder values
+- Include warning about GitOps limitations
+- Provide kubectl commands for manual creation
+- Recommend upgrading to ESO or Sealed Secrets
 
 ### Alpha/Beta Feature Handling
 

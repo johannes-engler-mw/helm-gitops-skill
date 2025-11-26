@@ -214,7 +214,7 @@ spec:
   description: "Infrastructure applications"
   sourceRepos:
     - https://prometheus-community.github.io/helm-charts
-    - https://charts.bitnami.com/bitnami
+    - https://charts.jetstack.io
   destinations:
     - namespace: '*'
       server: https://kubernetes.default.svc
@@ -273,6 +273,22 @@ spec:
       prune: true
       selfHeal: true
 ```
+
+## Secrets Integration
+
+When secrets are detected, the skill adapts Application manifest generation to integrate with your chosen solution.
+
+**ArgoCD Consideration:** ArgoCD stores manifests in Redis cache. Use post-deployment secrets (ESO, Sealed Secrets) rather than generation-time injection for better security.
+
+**Supported Approaches:**
+- **External Secrets Operator (ESO)**: Generates ExternalSecret, uses chart's `existingSecret` pattern in Application values
+- **Sealed Secrets**: Generates SealedSecret template with kubeseal commands
+- **SOPS**: Requires helm-secrets plugin (complex setup - web search for details)
+
+**For implementation details**, the skill will web search for current patterns:
+- ESO: `"External Secrets Operator ArgoCD {chart-name} kubernetes"`
+- Sealed Secrets: `"Sealed Secrets ArgoCD {chart-name} kubernetes"`
+- SOPS: `"ArgoCD helm-secrets plugin SOPS setup"`
 
 ## Debugging
 

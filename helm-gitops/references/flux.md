@@ -24,16 +24,16 @@ spec:
   url: {repository-url}
 ```
 
-**Example for Bitnami:**
+**Example for Prometheus Community:**
 ```yaml
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
-  name: bitnami
+  name: prometheus-community
   namespace: flux-system
 spec:
   interval: 24h
-  url: https://charts.bitnami.com/bitnami
+  url: https://prometheus-community.github.io/helm-charts
 ```
 
 ### Namespace-Scoped HelmRepository
@@ -62,7 +62,7 @@ spec:
 ```
 
 **When to use each**:
-- **Global** (`flux-system` namespace): Multiple services use same repository (Bitnami, Prometheus Community, etc.)
+- **Global** (`flux-system` namespace): Multiple services use same repository (Prometheus Community, Jetstack, etc.)
 - **Namespace-scoped**: Single service repository, better isolation, easier cleanup when removing service
 
 **OCI Registry Example:**
@@ -247,8 +247,8 @@ clusters/
 
 infrastructure/
 ├── sources/           # HelmRepositories
-│   ├── bitnami.yaml
-│   └── prometheus-community.yaml
+│   ├── prometheus-community.yaml
+│   └── jetstack.yaml
 ├── controllers/       # Ingress, cert-manager, etc.
 │   ├── ingress-nginx.yaml
 │   └── cert-manager.yaml
@@ -347,6 +347,22 @@ kubectl get crd | grep {app-name}
 # Check route/ingress configuration
 kubectl get ingress,httproute -A
 ```
+
+## Secrets Integration
+
+When secrets are detected, the skill adapts manifest generation to integrate with your chosen solution:
+
+- **External Secrets Operator (ESO)**: Generates ExternalSecret referencing backend, uses chart's `existingSecret` pattern or `valuesFrom`
+- **Sealed Secrets**: Generates SealedSecret template with kubeseal commands, references in HelmRelease
+- **SOPS**: Configures Kustomization with SOPS decryption, generates encrypted values file (Flux native support)
+- **Native Secrets**: Creates Secret template with warnings (development/testing only)
+
+**For implementation details**, the skill will web search for current patterns:
+- ESO: `"External Secrets Operator {chart-name} kubernetes example"`
+- Sealed Secrets: `"Sealed Secrets kubeseal {chart-name} kubernetes"`
+- SOPS: `"SOPS FluxCD {chart-name} kubernetes"`
+
+**Example reference**: See `/examples/fluxcd/postgresql-eso/` for a minimal ESO integration example.
 
 ## Debugging
 
