@@ -8,12 +8,6 @@
   "homepage": "https://github.com/johannes-engler-mw/helm-gitops-skill",
   "repository": "https://github.com/johannes-engler-mw/helm-gitops-skill",
   "license": "MIT",
-  "skills": [
-    {
-      "name": "helm-gitops",
-      "path": "helm-gitops/SKILL.md"
-    }
-  ],
   "keywords": [
     "helm",
     "kubernetes",
