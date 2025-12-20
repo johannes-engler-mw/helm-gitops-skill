@@ -1,5 +1,18 @@
 # ArgoCD Helm Deployment Reference
 
+## Contents
+- [Application CRD](#application-crd)
+- [Source Types](#source-types) (Helm Repository, OCI, Git)
+- [Values Configuration](#values-configuration)
+- [Sync Policies](#sync-policies)
+- [Common Patterns](#common-patterns)
+- [ApplicationSet](#applicationset-for-multiple-environments)
+- [AppProject](#appproject-optional)
+- [File Organization](#file-organization)
+- [App-of-Apps Pattern](#app-of-apps-pattern)
+- [Secrets Integration](#secrets-integration)
+- [Debugging](#debugging)
+
 ## Application CRD
 
 ArgoCD uses a single `Application` CRD to deploy Helm charts.

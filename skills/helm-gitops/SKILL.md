@@ -7,7 +7,25 @@ description: Deploy official Helm charts for open source applications to Kuberne
 
 Deploy Helm charts to Kubernetes clusters using GitOps principles with ArgoCD or FluxCD.
 
+## Prerequisites
+
+- **kubectl** configured with cluster access (for secrets detection in Step 3.5)
+  - If unavailable, ask user to specify their secrets solution manually
+
 ## Workflow
+
+Copy this checklist to track progress:
+
+```
+Deployment Progress:
+- [ ] Step 1: Identify application from user request
+- [ ] Step 2: Web search for chart details (repo, version, secrets)
+- [ ] Step 3: Detect repository structure pattern
+- [ ] Step 3.5: Detect secrets management solution
+- [ ] Step 4: Confirm deployment method (ArgoCD/FluxCD)
+- [ ] Step 5: Generate manifests with secrets adaptation
+- [ ] Step 6: Save files and provide verification steps
+```
 
 1. **Identify the application** - Parse user request for the application name
 2. **Web search for chart details** - Find official Helm chart repository, chart name, and recommended values
@@ -45,27 +63,15 @@ Prefer official charts from: ArtifactHub, vendor repos, or CNCF projects.
 
 ### Combined Chart Pattern
 
-Some charts bundle multiple components for simplified deployment:
+Some charts bundle multiple components (e.g., APISIX includes gateway + ingress-controller, kube-prometheus-stack bundles Prometheus + Grafana + Alertmanager). Configure via nested values:
 
-- **APISIX**: `apisix` chart includes gateway + ingress-controller
-- **kube-prometheus-stack**: Prometheus + Grafana + Alertmanager
-- **Kong**: Gateway + ingress controller
-
-**Configuration approach**:
 ```yaml
 values:
-  # Main component
   gateway:
     enabled: true
-
-  # Integrated component
   ingress-controller:
     enabled: true
-    config:
-      # Controller-specific settings
 ```
-
-**Advantages**: Simplified deployment, automatic service discovery between components, consistent versioning.
 
 ## Step 3: Detect Repository Structure
 
@@ -115,13 +121,9 @@ infra/
       └── ingress-nginx.yaml (flat alternative)
 ```
 
-**Pattern D Benefits**:
-- Clear service isolation
-- Easy to add/remove services
-- Consistent structure across team
-- Natural Kustomization boundaries
+**Pattern D** is preferred for clear service isolation.
 
-Adapt output to match existing conventions. If no clear pattern exists, suggest a sensible default and confirm with user.
+Adapt output to match existing conventions. If no clear pattern, suggest Pattern D and confirm with user.
 
 ## Step 3.5: Detect Secrets Management
 
@@ -129,51 +131,33 @@ After understanding the repository structure, detect which secrets management so
 
 ### Detection Process
 
-Execute a three-layer detection strategy to identify the appropriate secrets solution:
+Execute a three-layer detection strategy:
 
 #### Layer 1: Cluster Detection
 
-Check the cluster for installed secrets management solutions:
-
 ```bash
-# External Secrets Operator (ESO)
+# ESO
 kubectl get crd externalsecrets.external-secrets.io 2>/dev/null
-kubectl get crd secretstores.external-secrets.io 2>/dev/null
-kubectl get deployment -n external-secrets external-secrets 2>/dev/null
 
 # Sealed Secrets
 kubectl get crd sealedsecrets.bitnami.com 2>/dev/null
-kubectl get deployment -n kube-system sealed-secrets-controller 2>/dev/null
 ```
 
-Run these checks in parallel for performance (~2-5 seconds total). Cache results in memory for the current session.
+Run checks in parallel. Requires `kubectl` with cluster access.
 
 #### Layer 2: Repository Pattern Search
 
-Search the GitOps repository for secrets-related patterns:
-
 ```bash
-# ESO patterns
 grep -r "kind: ExternalSecret\|kind: SecretStore" --include="*.yaml" -l 2>/dev/null | head -10
-
-# Sealed Secrets patterns
 grep -r "kind: SealedSecret" --include="*.yaml" -l 2>/dev/null | head -10
-
-# SOPS patterns
 grep -r "sops:\|ENC\[AES256_GCM" --include="*.yaml" -l 2>/dev/null | head -10
-
-# Native secrets (check for common usage)
-grep -r "kind: Secret" --include="*.yaml" -l 2>/dev/null | head -10
 ```
 
-Count occurrences to identify the predominant pattern in use.
+Count occurrences to identify the predominant pattern.
 
 #### Layer 3: Chart-Specific Secrets
 
-From Step 2 web search results, identify which Helm values contain secrets:
-- Values matching patterns: `*password*`, `*apiKey*`, `*token*`, `*secret*`, `*credential*`, `*tls.key*`, `*tls.crt*`
-- Check if chart supports `existingSecret` pattern (preferred for secrets management)
-- Identify secret value paths (e.g., `auth.password`, `adminPassword`)
+From Step 2 web search, identify secret values (`*password*`, `*apiKey*`, `*token*`) and check for `existingSecret` support.
 
 ### Decision Logic
 

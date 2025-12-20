@@ -1,5 +1,16 @@
 # FluxCD Helm Deployment Reference
 
+## Contents
+- [Required Resources](#required-resources)
+- [HelmRepository](#helmrepository) (Global vs Namespace-scoped)
+- [HelmRelease](#helmrelease)
+- [Common Patterns](#common-patterns) (Dependencies, ValuesFrom, Health Checks)
+- [File Organization](#file-organization)
+- [Kustomization for Flux](#kustomization-for-flux)
+- [Post-Deployment Verification](#post-deployment-verification)
+- [Secrets Integration](#secrets-integration)
+- [Debugging](#debugging)
+
 ## Required Resources
 
 FluxCD uses two CRDs to deploy Helm charts:
