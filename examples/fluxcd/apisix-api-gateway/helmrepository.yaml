@@ -1,8 +1,12 @@
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: apisix
   namespace: apisix
+  labels:
+    app.kubernetes.io/name: apisix
+    app.kubernetes.io/component: helm-repository
+    app.kubernetes.io/managed-by: Flux
 spec:
   interval: 10m
   url: https://charts.apiseven.com

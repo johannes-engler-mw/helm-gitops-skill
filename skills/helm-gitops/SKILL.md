@@ -349,3 +349,16 @@ Always explain:
 - What files were created and where
 - How to apply/sync the changes
 - Any post-deployment verification steps
+
+## Error Handling
+
+For common failure scenarios and recovery strategies, see [references/error-handling.md](references/error-handling.md).
+
+Key principle: **Don't guess** - ask the user for clarification with clear options and recommendations.
+
+Covered scenarios:
+- Web search failures (no chart, multiple charts, deprecated)
+- Repository structure ambiguity
+- Chart version issues
+- Secrets detection failures
+- Dependency issues

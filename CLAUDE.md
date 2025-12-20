@@ -152,6 +152,18 @@ The `.claude-plugin/plugin.json` file defines:
 
 When updating skill behavior, ensure description in `plugin.json` matches capabilities.
 
+## Error Handling
+
+The skill includes comprehensive error handling guidance in `SKILL.md` for common failure scenarios:
+
+- **Web search failures**: No chart found, multiple charts, deprecated charts
+- **Repository structure ambiguity**: No clear pattern, mixed patterns
+- **Chart version issues**: Version not found, major version jumps
+- **Secrets detection failures**: Cluster not accessible, conflicting solutions
+- **Dependency issues**: Missing required dependencies
+
+Key principle: **Don't guess** - always ask the user for clarification with clear options and recommendations.
+
 ## Common Gotchas
 
 1. **HelmRepository namespace references** - FluxCD namespace-scoped repos must have `sourceRef.namespace` matching `HelmRelease.metadata.namespace`

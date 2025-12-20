@@ -3,6 +3,10 @@ kind: Application
 metadata:
   name: apisix
   namespace: argocd
+  labels:
+    app.kubernetes.io/name: apisix
+    app.kubernetes.io/component: api-gateway
+    app.kubernetes.io/managed-by: ArgoCD
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

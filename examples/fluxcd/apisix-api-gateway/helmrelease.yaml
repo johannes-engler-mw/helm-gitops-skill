@@ -3,8 +3,12 @@ kind: HelmRelease
 metadata:
   name: apisix
   namespace: apisix
+  labels:
+    app.kubernetes.io/name: apisix
+    app.kubernetes.io/component: api-gateway
+    app.kubernetes.io/managed-by: Flux
 spec:
-  interval: 10m
+  interval: 10m  # Reconcile every 10 minutes - adjust based on change frequency
   chart:
     spec:
       chart: apisix
@@ -34,7 +38,7 @@ spec:
       replicaCount: 3
 
   install:
-    createNamespace: false
+    createNamespace: false  # Using explicit namespace.yaml for label control
     remediation:
       retries: 3
 

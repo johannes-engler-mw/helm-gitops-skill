@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgresql-eso-resources
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: secrets
+    app.kubernetes.io/managed-by: ArgoCD
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  # Point to the directory containing ESO resources in your GitOps repo
+  source:
+    repoURL: https://github.com/YOUR_ORG/YOUR_GITOPS_REPO.git
+    targetRevision: HEAD
+    path: examples/argocd/postgresql-eso/eso-manifests
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: databases
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+
+# Note: This Application manages the ESO resources (SecretStore, ExternalSecret).
+# Update the repoURL and path to point to your GitOps repository.
+#
+# Alternative: You can apply ESO resources directly with kubectl:
+#   kubectl apply -f namespace.yaml
+#   kubectl apply -f secretstore.yaml
+#   kubectl apply -f externalsecret.yaml
