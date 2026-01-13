@@ -83,25 +83,26 @@ The skill works with any official Helm chart, with optimized patterns for:
 
 ```
 helm-gitops-skill/
-├── helm-gitops/
+├── skills/helm-gitops/
 │   ├── SKILL.md                    # Main skill definition with workflow
 │   └── references/                 # Detailed reference documentation
 │       ├── argocd.md               # ArgoCD deployment patterns
 │       ├── flux.md                 # FluxCD deployment patterns
-│       └── deployment-modes.md     # Standalone vs clustered deployments
+│       ├── deployment-modes.md     # Standalone vs clustered deployments
+│       └── error-handling.md       # Error handling guidance
 ├── examples/                       # Example use cases
 │   ├── argocd/                     # ArgoCD examples
 │   │   ├── apisix-api-gateway/
-│   │   ├── kube-prometheus-stack/
-│   │   └── nginx-ingress/
+│   │   └── postgresql-eso/
 │   └── fluxcd/                     # FluxCD examples
 │       ├── apisix-api-gateway/
-│       ├── kube-prometheus-stack/
-│       └── nginx-ingress/
+│       └── postgresql-eso/
+├── .claude-plugin/                 # Plugin metadata
+│   ├── plugin.json
+│   └── marketplace.json
+├── CLAUDE.md                       # Project-specific guidance for Claude
 ├── README.md
 ├── LICENSE
-├── CHANGELOG.md
-├── prpm.json
 └── .gitignore
 ```
 

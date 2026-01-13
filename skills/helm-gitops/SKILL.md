@@ -241,6 +241,9 @@ For secrets integration, use web search to get current implementation patterns b
 
 Key principles:
 - Pin chart versions for reproducibility
+- Only specify values that differ from chart defaults (minimal overrides)
+- This allows chart defaults to evolve without requiring manifest updates
+- Essential for multi-environment setups where base + patch pattern is common
 - Use sensible defaults with clear comments for customization points
 - Include resource requests/limits recommendations if available from search
 - Add standard labels (app.kubernetes.io/name, app.kubernetes.io/component, etc.)
