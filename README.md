@@ -1,6 +1,11 @@
 # Helm GitOps Deployment Skill
 
-A Claude Code skill for deploying official Helm charts to Kubernetes clusters using GitOps principles with ArgoCD or FluxCD.
+[![Claude Code](https://img.shields.io/badge/Claude_Code-Compatible-blue)](https://github.com/anthropics/claude-code)
+[![OpenAI Codex](https://img.shields.io/badge/OpenAI_Codex-Compatible-green)](https://developers.openai.com/codex)
+[![Agent Skills](https://img.shields.io/badge/Agent_Skills-Standard-orange)](https://agentskills.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+A universal AI agent skill for deploying official Helm charts to Kubernetes clusters using GitOps principles with ArgoCD or FluxCD.
 
 ## What It Does
 
@@ -29,19 +34,45 @@ It scans your cluster and repository to identify which solution you're using, th
 
 ## Installation
 
+This skill works with Claude Code, OpenAI Codex, VS Code, GitHub Copilot, Cursor, and other [agentskills.io](https://agentskills.io)-compatible platforms.
+
+### Claude Code
+
 ```bash
-# From marketplace (when published)
-/plugin marketplace add johannes-engler-mw/helm-gitops-skill
-/plugin install helm-gitops
-
-# Or from GitHub URL
+# Add repository as marketplace
 /plugin marketplace add https://github.com/johannes-engler-mw/helm-gitops-skill.git
-/plugin install helm-gitops
 
-# Or manually (clone first, then copy to your home directory)
+# Install the skill
+/plugin install helm-gitops
+```
+
+### OpenAI Codex
+
+```bash
+# Install using skill-installer
+$skill-installer install https://github.com/johannes-engler-mw/helm-gitops-skill
+
+# Or manual installation
 git clone https://github.com/johannes-engler-mw/helm-gitops-skill.git
-mkdir -p ~/.claude/skills
-cp -r helm-gitops-skill/helm-gitops/ ~/.claude/skills/
+cp -r helm-gitops-skill/.codex/skills/helm-gitops ~/.codex/skills/
+```
+
+### VS Code / GitHub Copilot
+
+```bash
+# Clone to VS Code skills directory
+git clone https://github.com/johannes-engler-mw/helm-gitops-skill.git
+cp -r helm-gitops-skill/skills/helm-gitops ~/.vscode/skills/
+# Or use .codex/skills/ - both work with VS Code
+```
+
+### Manual Installation (Any Platform)
+
+```bash
+git clone https://github.com/johannes-engler-mw/helm-gitops-skill.git
+# Then symlink to your platform's skills directory:
+# Claude Code: ln -s $(pwd)/skills/helm-gitops ~/.claude/skills/helm-gitops
+# Codex: ln -s $(pwd)/.codex/skills/helm-gitops ~/.codex/skills/helm-gitops
 ```
 
 ## Usage
@@ -173,7 +204,7 @@ infra/apisix/
 
 ## Requirements
 
-- Claude Code 1.0 or higher
+- AI agent with agentskills.io support (Claude Code, OpenAI Codex, VS Code, GitHub Copilot, etc.)
 - Existing GitOps repository (ArgoCD or FluxCD configured)
 - Kubernetes cluster with kubectl access
 - Git repository for GitOps manifests
@@ -188,11 +219,17 @@ MIT License - see [LICENSE](LICENSE) file for details
 
 ## Resources
 
+### GitOps & Kubernetes
 - [ArgoCD Documentation](https://argo-cd.readthedocs.io/)
 - [FluxCD Documentation](https://fluxcd.io/flux/)
 - [Helm Charts - ArtifactHub](https://artifacthub.io/)
-- [Claude Code Documentation](https://docs.claude.com/en/docs/claude-code)
 - [GitOps Principles](https://opengitops.dev/)
+
+### AI Agent Platforms
+- [Agent Skills Specification](https://agentskills.io)
+- [Claude Code Documentation](https://docs.claude.com/en/docs/claude-code)
+- [OpenAI Codex Documentation](https://developers.openai.com/codex)
+- [VS Code Agent Skills Guide](https://code.visualstudio.com/docs/copilot/customization/agent-skills)
 
 ## Support
 
