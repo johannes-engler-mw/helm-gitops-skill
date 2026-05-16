@@ -43,6 +43,10 @@ Extract the application name from user request. Examples:
 
 ## Step 2: Web Search for Chart Details
 
+WebSearch is required here. Falling back to training-data versions is **not acceptable** — Helm chart versions move fast and stale guesses produce stale manifests. If WebSearch errors or is unavailable, surface that to the user rather than silently guessing.
+
+**Pin the version your search returned, not an older one you remember being stable.** It's tempting to "play it safe" by pinning an older release (e.g. searching, finding `85.1.1`, then pinning `65.x` as a "well-tested baseline"). Don't — the user explicitly chose to deploy now, on the current release. If you have real stability concerns about the latest version (known regressions, breaking changes flagged in the changelog), note them in SUMMARY.md and let the user decide whether to downgrade. Default to current.
+
 **Always search** to get current, accurate Helm chart information. Search queries:
 - `{app-name} official helm chart`
 - `{app-name} helm chart artifacthub`

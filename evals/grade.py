@@ -384,20 +384,15 @@ GRADERS = {
 }
 
 
-def grade_run(eval_dir: Path, run_name: str) -> dict | None:
+def grade_outputs_dir(eval_dir: Path, run_name: str, outputs_dir: Path) -> dict | None:
+    """Grade a single outputs/ dir; returns the grading.json dict or None."""
     metadata_file = eval_dir / "eval_metadata.json"
     if not metadata_file.exists():
-        print(f"[skip] {eval_dir.name}/{run_name}: no eval_metadata.json", file=sys.stderr)
         return None
     metadata = json.loads(metadata_file.read_text())
     eval_id = metadata["eval_id"]
     grader = GRADERS.get(eval_id)
     if not grader:
-        print(f"[skip] {eval_dir.name}/{run_name}: no grader for eval_id={eval_id}", file=sys.stderr)
-        return None
-    outputs_dir = eval_dir / run_name / "outputs"
-    if not outputs_dir.exists():
-        print(f"[skip] {eval_dir.name}/{run_name}: no outputs dir", file=sys.stderr)
         return None
     expectations = grader(outputs_dir)
     passed = sum(1 for e in expectations if e["passed"])
@@ -418,18 +413,36 @@ def main() -> int:
     overall = []
     for eval_dir in sorted(ITERATION_DIR.glob("eval-*")):
         for run_name in ("with_skill", "without_skill"):
-            run_dir = eval_dir / run_name
-            if not run_dir.exists():
+            config_dir = eval_dir / run_name
+            if not config_dir.exists():
                 continue
-            result = grade_run(eval_dir, run_name)
-            if result is None:
-                continue
-            # Aggregator expects grading.json under run-N/ subdir
-            run_subdir = run_dir / "run-1"
-            run_subdir.mkdir(exist_ok=True)
-            (run_subdir / "grading.json").write_text(json.dumps(result, indent=2))
-            overall.append((eval_dir.name, run_name, result["summary"]))
-            print(f"{eval_dir.name}/{run_name}: {result['summary']['passed']}/{result['summary']['total']}")
+            # New layout: <config>/run-N/outputs/. Fallback: <config>/outputs/ (legacy single-replicate).
+            run_subdirs = sorted(config_dir.glob("run-*"))
+            if run_subdirs:
+                for run_subdir in run_subdirs:
+                    outputs_dir = run_subdir / "outputs"
+                    if not outputs_dir.exists():
+                        print(f"[skip] {eval_dir.name}/{run_name}/{run_subdir.name}: no outputs dir", file=sys.stderr)
+                        continue
+                    result = grade_outputs_dir(eval_dir, run_name, outputs_dir)
+                    if result is None:
+                        continue
+                    (run_subdir / "grading.json").write_text(json.dumps(result, indent=2))
+                    overall.append((eval_dir.name, f"{run_name}/{run_subdir.name}", result["summary"]))
+                    print(f"{eval_dir.name}/{run_name}/{run_subdir.name}: {result['summary']['passed']}/{result['summary']['total']}")
+            else:
+                outputs_dir = config_dir / "outputs"
+                if not outputs_dir.exists():
+                    print(f"[skip] {eval_dir.name}/{run_name}: no outputs dir", file=sys.stderr)
+                    continue
+                result = grade_outputs_dir(eval_dir, run_name, outputs_dir)
+                if result is None:
+                    continue
+                run_subdir = config_dir / "run-1"
+                run_subdir.mkdir(exist_ok=True)
+                (run_subdir / "grading.json").write_text(json.dumps(result, indent=2))
+                overall.append((eval_dir.name, run_name, result["summary"]))
+                print(f"{eval_dir.name}/{run_name}: {result['summary']['passed']}/{result['summary']['total']}")
     return 0
 
 
