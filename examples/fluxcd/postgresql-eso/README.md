@@ -2,6 +2,8 @@
 
 This example demonstrates deploying CloudNativePG (CNCF PostgreSQL Operator) using FluxCD with External Secrets Operator for secrets management.
 
+> **Chart version note:** The pinned `version` reflects a known-working version at the time of writing. Before applying, check [ArtifactHub](https://artifacthub.io/packages/helm/cnpg/cloudnative-pg) for the current version and bump it if needed.
+
 ## Prerequisites
 
 - Kubernetes cluster with kubectl access

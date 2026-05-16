@@ -30,6 +30,9 @@ spec:
               serviceNamespace: apisix
 
         # etcd configuration (required dependency)
+        # This example uses clustered etcd (3 replicas) for HA. For local/dev
+        # clusters or stateless workflows, APISIX can also run with a single
+        # etcd replica or in standalone/declarative mode.
         etcd:
           enabled: true
           replicaCount: 3

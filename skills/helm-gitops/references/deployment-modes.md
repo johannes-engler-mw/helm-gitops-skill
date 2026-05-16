@@ -1,5 +1,7 @@
 # Deployment Modes Reference
 
+**See also:** [argocd.md](argocd.md) for ArgoCD manifest patterns • [flux.md](flux.md) for FluxCD manifest patterns
+
 ## Overview
 
 Many Helm charts offer multiple deployment modes. Understanding these options helps configure appropriate HelmRelease values for your environment.

@@ -44,6 +44,12 @@ __pycache__/
 # Log files
 *.log
 
+# Skill eval workspace (transient outputs)
+helm-gitops-workspace/
+
+# Codex debate artifacts
+.codex-debate/
+
 # Archive files
 *.zip
 *.tar.gz

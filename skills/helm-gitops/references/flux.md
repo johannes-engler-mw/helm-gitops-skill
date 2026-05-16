@@ -1,5 +1,7 @@
 # FluxCD Helm Deployment Reference
 
+**See also:** [deployment-modes.md](deployment-modes.md) when the chart supports standalone vs clustered modes • [error-handling.md](error-handling.md) for chart/structure/secrets ambiguity recovery
+
 ## Contents
 - [Required Resources](#required-resources)
 - [HelmRepository](#helmrepository) (Global vs Namespace-scoped)

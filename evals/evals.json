@@ -1,0 +1,57 @@
+{
+  "skill_name": "helm-gitops",
+  "evals": [
+    {
+      "id": 1,
+      "name": "loki-on-flux-with-eso",
+      "prompt": "I want to add Loki for log aggregation to our cluster. The GitOps repo for our infrastructure is at <FIXTURE_PATH>. Please configure persistence with a 50Gi PVC.",
+      "expected_output": "FluxCD manifests (HelmRepository + HelmRelease + Kustomization + namespace) for Loki, written under infra/loki/ to match the existing Pattern D layout. No ExternalSecret needed (Loki with filesystem storage). Persistence configured at 50Gi.",
+      "fixture_path": "evals/fixtures/eval-1-flux-pattern-d-eso",
+      "assertions": [
+        {"name": "picked_flux", "text": "Generated manifests use FluxCD (kind: HelmRelease), not ArgoCD"},
+        {"name": "pattern_d_layout", "text": "Files written under infra/loki/ to match Pattern D component-based layout"},
+        {"name": "kustomization_present", "text": "kustomization.yaml present in the new loki directory"},
+        {"name": "helmrepository_present", "text": "HelmRepository resource generated"},
+        {"name": "chart_version_pinned", "text": "HelmRelease chart.spec.version is a specific pinned version"},
+        {"name": "chart_version_current", "text": "Chart version is current (Loki forked to grafana-community in Mar 2026; current is 14.x community / 7.x grafana)"},
+        {"name": "persistence_50gi", "text": "Loki persistence configured at 50Gi as the user explicitly requested"},
+        {"name": "no_unneeded_externalsecret", "text": "No unnecessary ExternalSecret generated (filesystem-mode Loki needs none)"},
+        {"name": "namespace_present", "text": "namespace.yaml generated for the new loki namespace"}
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "cert-manager-argocd-cloudflare-dns01",
+      "prompt": "Set up cert-manager in our cluster with Cloudflare DNS01 challenges for ACME so we can get wildcard certificates. Our GitOps repo is at <FIXTURE_PATH>. We use Cloudflare as our DNS provider.",
+      "expected_output": "ArgoCD Application for cert-manager under argocd/apps/. ClusterIssuer with Cloudflare DNS01 solver referencing a Kubernetes Secret. Cloudflare Secret (if generated) is a placeholder template with a warning, not a real token.",
+      "fixture_path": "evals/fixtures/eval-2-argocd-no-secrets",
+      "assertions": [
+        {"name": "picked_argocd", "text": "Generated manifests use ArgoCD (kind: Application), not Flux"},
+        {"name": "argocd_apps_path", "text": "cert-manager Application placed under argocd/apps/ to match existing convention"},
+        {"name": "chart_version_pinned", "text": "Application's targetRevision is a specific pinned chart version"},
+        {"name": "chart_version_current", "text": "cert-manager chart version is current (within ~2 minors of v1.20.2 as of May 2026)"},
+        {"name": "cloudflare_dns01_clusterissuer", "text": "ClusterIssuer/Issuer generated with Cloudflare DNS01 solver"},
+        {"name": "cloudflare_token_via_secret", "text": "Cloudflare API token referenced via Secret (apiTokenSecretRef), not plaintext"},
+        {"name": "cloudflare_secret_is_placeholder", "text": "Cloudflare API token Secret (if generated) contains a placeholder + warning, not a real-looking token"},
+        {"name": "crd_install_handled", "text": "CRDs handled (installCRDs:true or ServerSideApply=true)"}
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "greenfield-prometheus-grafana",
+      "prompt": "I need to set up Prometheus and Grafana to monitor my cluster. We're just getting started with GitOps. Repo path: <FIXTURE_PATH>.",
+      "expected_output": "Combined kube-prometheus-stack chart (not two separate charts) in a component directory under infra/ or infrastructure/. Pinned version. Manifests use one tool's CRDs (no mixing).",
+      "fixture_path": "evals/fixtures/eval-3-greenfield",
+      "assertions": [
+        {"name": "uses_kube_prometheus_stack", "text": "Output uses combined kube-prometheus-stack chart, NOT two separate Prometheus and Grafana charts"},
+        {"name": "pattern_d_recommended", "text": "Output structure groups manifests in a component directory under infra/ or infrastructure/"},
+        {"name": "chart_version_pinned", "text": "Chart version pinned to a specific release"},
+        {"name": "chart_version_current", "text": "kube-prometheus-stack chart version is current (within ~5 minors of 85.x as of May 2026)"},
+        {"name": "manifests_match_chosen_tool", "text": "Generated manifests use the right CRDs for the chosen tool (no mixing)"}
+      ],
+      "files": []
+    }
+  ]
+}

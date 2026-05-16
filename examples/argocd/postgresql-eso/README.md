@@ -2,6 +2,8 @@
 
 Deploys CloudNativePG operator using ArgoCD with ESO for secrets management.
 
+> **Chart version note:** The pinned `targetRevision` reflects a known-working version at the time of writing. Before applying, check [ArtifactHub](https://artifacthub.io/packages/helm/cnpg/cloudnative-pg) for the current version and bump it if needed.
+
 ## Prerequisites
 
 - ArgoCD installed

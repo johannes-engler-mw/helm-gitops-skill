@@ -2,6 +2,8 @@
 
 This example demonstrates deploying APISIX API Gateway using FluxCD.
 
+> **Chart version note:** The pinned `version` in this example reflects a known-working version at the time of writing. Before applying, check [ArtifactHub](https://artifacthub.io/packages/helm/apisix/apisix) for the current version and bump it if needed.
+
 ## Files
 
 - `namespace.yaml` - Creates the apisix namespace

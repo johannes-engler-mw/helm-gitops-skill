@@ -10,9 +10,9 @@ This is a Claude Code skill plugin for deploying Helm charts to Kubernetes clust
 
 The repository is organized into three main areas:
 
-1. **`helm-gitops/`** - Skill definition and reference documentation
+1. **`skills/helm-gitops/`** - Skill definition and reference documentation
    - `SKILL.md` - Main skill workflow and instructions for Claude
-   - `references/` - Detailed templates and patterns for ArgoCD, FluxCD, and deployment modes
+   - `references/` - Detailed templates and patterns for ArgoCD, FluxCD, deployment modes, and error handling
 
 2. **`examples/`** - Working examples for both GitOps tools
    - `argocd/` - ArgoCD Application CRD examples
@@ -24,16 +24,17 @@ The repository is organized into three main areas:
 
 ## Architecture Concepts
 
-### Skill Workflow (6-Step Process)
+### Skill Workflow (7-Step Process)
 
-The skill follows a structured workflow defined in `helm-gitops/SKILL.md`:
+The skill follows a structured workflow defined in `skills/helm-gitops/SKILL.md`:
 
 1. **Identify Application** - Parse user request for application name
 2. **Web Search** - Find official Helm chart repository URL, chart name, and version via web search (always required for accurate info)
-3. **Detect Repository Structure** - Examine user's GitOps repo to understand folder conventions (Pattern A-D)
-4. **Ask Deployment Method** - Confirm ArgoCD or FluxCD preference if not specified
-5. **Generate Manifests** - Create appropriate CRDs using reference templates
-6. **Provide Files** - Save to correct location matching detected conventions
+3. **Detect Repository Structure** - Examine user's GitOps repo to understand folder conventions (Pattern A-D); the grep used here also reveals which GitOps tool is already in use
+4. **Confirm Deployment Method** - Confirm ArgoCD or FluxCD (use the signal from Step 3 if available rather than asking from scratch)
+5. **Detect Secrets Management** - Three-layer detection (cluster CRDs + repo patterns + chart secrets); recommendations are tool-aware (SOPS preferred for Flux, deprioritized for ArgoCD)
+6. **Generate Manifests** - Create appropriate CRDs using reference templates; use `examples/` as few-shot anchors when shapes match
+7. **Validate and Provide Files** - Dry-run-validate the output, then save to correct location matching detected conventions
 
 ### Repository Pattern Detection
 
@@ -96,7 +97,7 @@ When adding examples for new applications:
 
 ### Reference Documentation Structure
 
-The `helm-gitops/references/` directory contains templates:
+The `skills/helm-gitops/references/` directory contains templates:
 
 - `argocd.md` - Application CRD patterns, sync policies, app-of-apps
 - `flux.md` - HelmRelease/HelmRepository patterns, post-deployment verification

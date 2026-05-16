@@ -7,7 +7,7 @@
     {
       "name": "helm-gitops",
       "source": "./",
-      "description": "Deploy official Helm charts for open source applications to Kubernetes via GitOps. Supports both ArgoCD and FluxCD. Handles monitoring tools, API gateways, ingress controllers, cert-manager, databases, and more."
+      "description": "Deploy official Helm charts for open source applications to Kubernetes via GitOps. Supports both ArgoCD and FluxCD. Handles monitoring, API gateways, ingress controllers, cert-manager, databases, and more."
     }
   ]
 }

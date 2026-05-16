@@ -2,6 +2,8 @@
 
 This example demonstrates deploying APISIX API Gateway using ArgoCD.
 
+> **Chart version note:** The pinned `targetRevision` in this example reflects a known-working version at the time of writing. Before applying, check [ArtifactHub](https://artifacthub.io/packages/helm/apisix/apisix) for the current version and bump it if needed.
+
 ## Files
 
 - `namespace.yaml` - Creates the apisix namespace
