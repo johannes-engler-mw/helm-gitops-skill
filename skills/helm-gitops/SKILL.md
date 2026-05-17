@@ -5,374 +5,112 @@ license: MIT
 compatibility: Requires kubectl for secrets detection; works with Claude Code, OpenAI Codex, and agentskills.io-compatible platforms
 metadata:
   author: Johannes Engler
-  version: "1.0.0"
+  version: "2.0.0"
 ---
 
 # Helm GitOps Deployment Skill
 
-Deploy Helm charts to Kubernetes clusters using GitOps principles with ArgoCD or FluxCD.
+You already know how to read a repo, pick a layout, and write a HelmRelease or Application. This skill exists for the parts that are easy to get subtly wrong: chart version currency, tool-aware secrets choices, validation, and a handful of named gotchas. Follow your normal workflow and let this skill correct you on those points.
 
-## Prerequisites
+## Always WebSearch for the chart — don't pin from training data
 
-- **kubectl** configured with cluster access (for secrets detection in Step 5)
-  - If unavailable, ask user to specify their secrets solution manually
+Helm chart versions, repo URLs, and even chart ownership change frequently. Examples we've watched bite people: Loki was forked from `grafana/loki` to `grafana-community/loki` in March 2026; APISIX moved repo hosts; kube-prometheus-stack majors ship breaking changes every few months.
 
-## Workflow
+Required searches before generating manifests:
 
-Copy this checklist to track progress:
+- `{app-name} official helm chart` — repo URL + chart name
+- `{app-name} helm chart artifacthub` — current version
+- `{app-name} helm secrets values` — which values are sensitive
 
-```
-Deployment Progress:
-- [ ] Step 1: Identify application from user request
-- [ ] Step 2: Web search for chart details (repo, version, secrets)
-- [ ] Step 3: Detect repository structure pattern
-- [ ] Step 4: Confirm deployment method (ArgoCD/FluxCD)
-- [ ] Step 5: Detect secrets management solution (tool-aware)
-- [ ] Step 6: Generate manifests, using examples/ as references
-- [ ] Step 7: Validate output and save to repo
-```
+If WebSearch errors or returns nothing, **surface that to the user** rather than silently pinning a version you remember. A wrong-but-confident version is worse than asking.
 
-The tool-choice step (Step 4) intentionally runs *before* secrets detection (Step 5). The reason: secrets options differ by tool. SOPS is Flux-native and a strong default for Flux users, but on ArgoCD it requires a custom plugin and is rarely the right first choice. Knowing the tool lets Step 5 recommend sensibly.
+**Pin the version your search returned, not an older one you remember being stable.** It is tempting to find `85.1.1` and pin `65.x` as a "well-tested baseline." Don't. The user chose to deploy now. If you have a real concern about the latest (known regression, breaking changelog), note it in SUMMARY.md and let the user downgrade. Default to current.
 
-## Step 1: Identify Application
+## Pick the tool from the repo, not from the user
 
-Extract the application name from user request. Examples:
-- "deploy APISIX API gateway" → APISIX
-- "add prometheus monitoring" → Prometheus / kube-prometheus-stack
-- "install cert-manager" → cert-manager
-
-## Step 2: Web Search for Chart Details
-
-WebSearch is required here. Falling back to training-data versions is **not acceptable** — Helm chart versions move fast and stale guesses produce stale manifests. If WebSearch errors or is unavailable, surface that to the user rather than silently guessing.
-
-**Pin the version your search returned, not an older one you remember being stable.** It's tempting to "play it safe" by pinning an older release (e.g. searching, finding `85.1.1`, then pinning `65.x` as a "well-tested baseline"). Don't — the user explicitly chose to deploy now, on the current release. If you have real stability concerns about the latest version (known regressions, breaking changes flagged in the changelog), note them in SUMMARY.md and let the user decide whether to downgrade. Default to current.
-
-**Always search** to get current, accurate Helm chart information. Search queries:
-- `{app-name} official helm chart`
-- `{app-name} helm chart artifacthub`
-- `{app-name} helm secrets values` (for secrets discovery)
-- `{app-name} helm chart password configuration`
-
-Extract from search results:
-- **Repository URL** (e.g., `https://charts.apiseven.com`)
-- **Chart name** (e.g., `apisix`)
-- **Latest version** (or note if user should pin)
-- **Key configuration values** for common setups
-- **Dependencies** (e.g., etcd for APISIX)
-- **Chart type** (single component vs combined)
-- **Secret values** (passwords, API keys, tokens, certificates)
-- **existingSecret support** (whether chart supports external secret references)
-
-Prefer official charts from: ArtifactHub, vendor repos, or CNCF projects.
-
-### Combined Chart Pattern
-
-Some charts bundle multiple components (e.g., APISIX includes gateway + ingress-controller, kube-prometheus-stack bundles Prometheus + Grafana + Alertmanager). Configure via nested values:
-
-```yaml
-values:
-  gateway:
-    enabled: true
-  ingress-controller:
-    enabled: true
-```
-
-## Step 3: Detect Repository Structure
-
-Examine the user's GitOps repository to understand conventions:
+Grep the repo first; ask only if ambiguous:
 
 ```bash
-# List top-level structure
-ls -la
-
-# Look for common GitOps patterns
-# The parens around -o are required so the implicit -print attaches to both clauses
-find . \( -name "*.yaml" -o -name "*.yml" \) | head -20
-
-# Check for existing HelmRelease or Application resources
-# This also reveals which GitOps tool is already in use (useful for Step 4)
 grep -rE "kind: (HelmRelease|Application)" --include="*.yaml" --include="*.yml" -l 2>/dev/null | head -5
 ```
 
-**Common structures to detect:**
+Exactly one match → name it back to the user and proceed. Both/neither → ask.
 
-```
-# Pattern A: By type
-infrastructure/
-  ├── controllers/
-  ├── monitoring/
-  └── networking/
+Match the existing folder convention. For greenfield repos with no convention, prefer per-component directories (`infra/<app>/{namespace,helmrepository,helmrelease,kustomization}.yaml`) — easier to add/remove apps cleanly.
 
-# Pattern B: By environment
-clusters/
-  ├── production/
-  ├── staging/
-  └── base/
+## Detect secrets management before generating values
 
-# Pattern C: Flat
-manifests/
-  ├── app1.yaml
-  └── app2.yaml
-
-# Pattern D: Component-based (per-service directories)
-infra/
-  ├── kong/
-  │   ├── namespace.yaml
-  │   ├── helmrepository.yaml
-  │   ├── helmrelease.yaml
-  │   └── kustomization.yaml
-  ├── apisix/
-  │   └── ... (same structure)
-  └── nginx-ingress/
-      └── ingress-nginx.yaml (flat alternative)
-```
-
-**Pattern D** is preferred for clear service isolation.
-
-Adapt output to match existing conventions. If no clear pattern, suggest Pattern D and confirm with user.
-
-## Step 4: Confirm Deployment Method
-
-In many cases Step 3's grep already revealed which GitOps tool the repo uses (`kind: HelmRelease` → Flux, `kind: Application` → ArgoCD). If exactly one was found, name it back to the user and confirm rather than asking from scratch — they'll appreciate not being asked the obvious. If both or neither show up, ask:
-
-> Which GitOps tool should I use?
-> 1. **ArgoCD** - Application CRD
-> 2. **FluxCD** - HelmRelease + HelmRepository CRDs
-
-Also clarify (these can be a single combined question rather than three separate ones):
-- **Namespace**: Where should the application run?
-- **Environment**: Is this for a specific environment (dev/staging/prod)?
-- **Values overrides**: Any custom configuration needed?
-
-Knowing the tool here unlocks tool-aware secrets recommendations in the next step.
-
-## Step 5: Detect Secrets Management
-
-Detect which secrets management solution to use for chart values containing sensitive data. The recommendations in this step are tailored to the tool chosen in Step 4.
-
-### Detection Process
-
-Execute a three-layer detection strategy:
-
-#### Layer 1: Cluster Detection
+Secrets choice is tool-aware, so do this **after** the tool is settled. Run these in parallel:
 
 ```bash
-# ESO
+# Cluster — what's installed
 kubectl get crd externalsecrets.external-secrets.io 2>/dev/null
-
-# Sealed Secrets
 kubectl get crd sealedsecrets.bitnami.com 2>/dev/null
+
+# Repo — what's already in use
+grep -rE "kind: (ExternalSecret|SecretStore|ClusterSecretStore)" --include="*.yaml" -l 2>/dev/null | head
+grep -r "kind: SealedSecret" --include="*.yaml" -l 2>/dev/null | head
+grep -rE "sops:|ENC\[AES256_GCM|provider: sops" --include="*.yaml" -l 2>/dev/null | head
 ```
 
-Run checks in parallel. Requires `kubectl` with cluster access. If unavailable, fall back to repository-pattern detection (Layer 2) and ask the user to confirm.
+Decision rules:
 
-#### Layer 2: Repository Pattern Search
+1. ESO in cluster AND repo → ESO
+2. Sealed Secrets in cluster AND repo → Sealed Secrets
+3. SOPS in repo AND tool is Flux → SOPS (native via `Kustomization.spec.decryption`)
+4. SOPS in repo AND tool is ArgoCD → **ask, don't assume**. SOPS on ArgoCD needs `argocd-vault-plugin` or `helm-secrets` sidecar. Suggest ESO or Sealed Secrets unless the user confirms a plugin is configured.
+5. Multiple solutions detected → ask with usage context
+6. Nothing detected → ask. For Flux, list SOPS as option 3; for ArgoCD, omit SOPS from the default list (mention only as a footnote requiring a plugin)
 
-```bash
-grep -rE "kind: (ExternalSecret|SecretStore|ClusterSecretStore)" --include="*.yaml" --include="*.yml" -l 2>/dev/null | head -10
-grep -r "kind: SealedSecret" --include="*.yaml" --include="*.yml" -l 2>/dev/null | head -10
-# SOPS: encrypted payload markers AND the canonical Flux Kustomization signal (decryption.provider: sops)
-grep -rE "sops:|ENC\[AES256_GCM|provider: sops" --include="*.yaml" --include="*.yml" -l 2>/dev/null | head -10
-```
+If the chart supports `existingSecret` / `auth.existingSecret`, prefer that pattern over `valuesFrom` — cleaner and chart-idiomatic. The web search in step 1 should have surfaced this.
 
-Count occurrences to identify the predominant pattern. The `provider: sops` match catches Flux `Kustomization` resources configured for SOPS decryption, which is the most idiomatic signal in Flux repos even when no encrypted payloads are checked in yet.
+**Never write a real-looking secret value into Git.** Placeholder Secrets get an explicit warning header and a `# REPLACE THIS` value; never something that looks like a real token.
 
-#### Layer 3: Chart-Specific Secrets
+## Gotchas to verify before saving
 
-From Step 2 web search, identify secret values (`*password*`, `*apiKey*`, `*token*`) and check for `existingSecret` support.
+These bite repeatedly:
 
-### Decision Logic
+- **FluxCD HelmRepository namespace** — if you use a namespace-scoped `HelmRepository` (recommended for isolation), `HelmRelease.spec.chart.spec.sourceRef.namespace` must match the `HelmRepository.metadata.namespace`. Mismatch silently breaks reconciliation.
+- **FluxCD CRD handling** — `install.crds: CreateReplace` and `upgrade.crds: CreateReplace` are usually what you want for charts that ship CRDs (cert-manager, kube-prometheus-stack). Without these, CRD upgrades are skipped.
+- **Combined charts** — if a chart bundles components (APISIX = gateway + ingress-controller; kube-prometheus-stack = Prometheus + Grafana + Alertmanager; Kong = gateway + ingress), enable the sub-components via nested values. Do **not** deploy them as separate Helm releases.
+- **Minimal values overrides** — only specify values that differ from chart defaults. Inline-duplicating defaults makes upgrades fragile.
 
-Apply this priority order to determine which secrets solution to use:
+## Use the bundled examples as few-shot anchors
 
-1. **If cluster has ESO + repo has ExternalSecret patterns** → Use ESO
-2. **If cluster has Sealed Secrets + repo has SealedSecret patterns** → Use Sealed Secrets
-3. **If repo has SOPS patterns** *and* tool is Flux → Use SOPS (Flux-native via `Kustomization.spec.decryption`)
-4. **If repo has SOPS patterns** *and* tool is ArgoCD → Confirm with user; SOPS needs the `argocd-vault-plugin` or `helm-secrets` plugin sidecar, which is non-trivial. Suggest ESO or Sealed Secrets unless the user has the plugin already configured.
-5. **If multiple solutions detected** → Ask user which to prefer (show usage context)
-6. **If none detected** → Ask user; tailor option order by tool (see prompts below)
+Before writing manifests from scratch, look at the closest matching example — they reflect the file layout, label set, and kustomization wiring this skill expects:
 
-### Ask User (Multiple Solutions Detected)
-
-> I detected multiple secrets management solutions in your environment:
-> - **External Secrets Operator** (found in: infrastructure/monitoring)
-> - **Sealed Secrets** (found in: applications/web-apps)
->
-> Which solution would you prefer for deploying {app-name}?
-> 1. External Secrets Operator - Syncs from external providers (Vault, AWS, GCP, Azure)
-> 2. Sealed Secrets - Encrypts secrets for Git storage
-> 3. SOPS - Encrypts values files (Flux native; on ArgoCD requires a plugin)
-> 4. Native Kubernetes Secrets - Not recommended for GitOps
-
-### Ask User (No Solution Detected)
-
-If no secrets management solution is found, present options in an order that matches the tool chosen in Step 4. Pick the right list:
-
-**For FluxCD:**
-> No secrets management solution detected. The {app-name} chart needs sensitive values (passwords, API keys). How would you like to handle secrets?
->
-> 1. **External Secrets Operator** (Recommended for production) — Syncs from Vault/AWS/GCP/Azure; secrets never stored in Git.
-> 2. **Sealed Secrets** — Encrypts secrets for Git storage; controller-managed.
-> 3. **SOPS** — Encrypts values files in Git. Flux has native support via `Kustomization.spec.decryption`. Good fit if you already use age/PGP.
-> 4. **Native Kubernetes Secrets** — Simple but NOT recommended for GitOps (manual creation, not in Git).
-
-**For ArgoCD:**
-> No secrets management solution detected. The {app-name} chart needs sensitive values (passwords, API keys). How would you like to handle secrets?
->
-> 1. **External Secrets Operator** (Recommended for production) — Syncs from Vault/AWS/GCP/Azure; secrets never stored in Git.
-> 2. **Sealed Secrets** — Encrypts secrets for Git storage; controller-managed.
-> 3. **Native Kubernetes Secrets** — Simple but NOT recommended for GitOps (manual creation, not in Git).
->
-> *SOPS is intentionally omitted: on ArgoCD it requires a plugin (`argocd-vault-plugin` or `helm-secrets`) and isn't usually the right first choice. If you already have a plugin configured, mention it and I'll generate accordingly.*
-
-**Next Step**: When a solution is chosen, use web search to get current implementation details:
-- ESO: Search `"External Secrets Operator {chart-name} kubernetes example"`
-- Sealed Secrets: Search `"Sealed Secrets kubeseal {chart-name} kubernetes"`
-- SOPS: Search `"SOPS FluxCD {chart-name} kubernetes"`
-
-This ensures up-to-date configuration patterns and best practices.
-
-## Step 6: Generate Manifests
-
-Based on the chosen tool and detected secrets solution, read the appropriate references:
-- **ArgoCD**: See [references/argocd.md](references/argocd.md)
-- **FluxCD**: See [references/flux.md](references/flux.md)
-
-For secrets integration, use web search to get current implementation patterns based on the detected solution.
-
-### Use the bundled examples as few-shot anchors
-
-Before generating from scratch, inspect the working examples in this repo — they reflect the conventions this skill is meant to produce (labels, file layout, namespace handling, kustomization wiring):
-
-- `examples/argocd/apisix-api-gateway/` — Application CRD with combined gateway + ingress-controller + etcd
+- `examples/argocd/apisix-api-gateway/` — Application with combined gateway + ingress + etcd
 - `examples/argocd/postgresql-eso/` — Application + ESO `ExternalSecret` + `SecretStore`
 - `examples/fluxcd/apisix-api-gateway/` — HelmRepository + HelmRelease + Kustomization
-- `examples/fluxcd/postgresql-eso/` — Same plus ESO resources
+- `examples/fluxcd/postgresql-eso/` — same plus ESO
 
-When the user's request is structurally similar (combined chart, ESO secrets, namespace-scoped HelmRepository, etc.), match the shape of the closest example rather than reinventing the file layout.
+If your shape doesn't match any example, see [references/argocd.md](references/argocd.md) or [references/flux.md](references/flux.md) for fuller templates.
 
-Key principles:
-- Pin chart versions for reproducibility
-- Only specify values that differ from chart defaults (minimal overrides)
-- This allows chart defaults to evolve without requiring manifest updates
-- Essential for multi-environment setups where base + patch pattern is common
-- Use sensible defaults with clear comments for customization points
-- Include resource requests/limits recommendations if available from search
-- Add standard labels (app.kubernetes.io/name, app.kubernetes.io/component, etc.)
-- **Adapt values for secrets** based on detected solution (Step 5)
+## Validate before declaring done
 
-### Secrets Values Adaptation
-
-Based on the secrets solution determined in Step 5, generate appropriate manifests. Use web search to find current implementation patterns:
-
-**For External Secrets Operator:**
-- Use chart's `existingSecret` pattern if supported
-- Generate ExternalSecret resource referencing external provider
-- Use HelmRelease `valuesFrom` to reference the secret
-- Web search: `"External Secrets Operator {chart-name} kubernetes example"`
-
-**For Sealed Secrets:**
-- Generate SealedSecret template with sealing instructions
-- Reference sealed secret in Helm values
-- Provide kubeseal commands in comments
-- Web search: `"Sealed Secrets kubeseal {chart-name} kubernetes"`
-
-**For SOPS:**
-- Generate encrypted values file template
-- Configure Flux Kustomization with SOPS decryption
-- Provide encryption workflow in README
-- Web search: `"SOPS FluxCD {chart-name} kubernetes"`
-
-**For Native Secrets:**
-- Generate Secret template with placeholder values
-- Include warning about GitOps limitations
-- Provide kubectl commands for manual creation
-- Recommend upgrading to ESO or Sealed Secrets
-
-### Alpha/Beta Feature Handling
-
-Many Helm charts include experimental features behind flags:
-
-```yaml
-values:
-  # Feature flags
-  kubernetes:
-    enableGatewayAPI: true      # Alpha: Gateway API support
-    enableServiceAPIs: false    # Deprecated feature
-
-  features:
-    experimental:
-      enabled: true
-```
-
-**Documentation approach**:
-- Note feature maturity (Alpha/Beta/GA) in comments
-- Link to upstream documentation for feature status
-- Warn about breaking changes in future versions
-- Suggest stable alternatives when available
-
-### Deploying Additional CRDs
-
-Some applications require additional Kubernetes resources alongside the HelmRelease:
-
-**Gateway API Resources**: GatewayClass, Gateway
-**Service Mesh Resources**: Istio VirtualService, DestinationRule
-**Monitoring**: ServiceMonitor, PodMonitor (Prometheus)
-**Certificate Management**: Certificate, Issuer (cert-manager)
-
-**Pattern**: Include these in the same directory structure with Kustomization:
-
-```
-infra/<app>/
-├── namespace.yaml
-├── helmrepository.yaml
-├── helmrelease.yaml
-├── gatewayclass.yaml      # Additional CRD resources
-├── gateway.yaml
-└── kustomization.yaml     # References all files
-```
-
-## Step 7: Validate and Provide Files
-
-Before saving, validate that the generated manifests are well-formed. This catches typos, schema mistakes, and missing references early — costs ~1 second per file and is worth it.
+Generated YAML is cheap; broken YAML applied at 2am is not. Validate with the rendered form, not the raw HelmRelease:
 
 ```bash
-# Quick client-side validation (no cluster contact needed)
+# Per-file syntax/schema
 kubectl apply --dry-run=client -f <file>.yaml
 
-# Or, if using a kustomization.yaml, validate the rendered output
+# Whole directory via kustomize
 kubectl kustomize <dir> | kubectl apply --dry-run=client -f -
 
-# Optional: render the Helm chart to inspect what would actually deploy
+# Optional: render the chart to inspect actual rendered output
 helm template <release-name> <chart> --version <version> --values <values.yaml>
 ```
 
-If `kubectl` isn't on PATH or cluster context is unavailable, fall back to `kubeval`, `kubeconform`, or just a syntax check (`yq eval`). Don't skip validation silently — surface the limitation to the user.
+If `kubectl` isn't available, fall back to `kubeconform` or `kubeval`. If none are available, say so to the user — don't silently skip.
 
-Save generated manifests to the detected/agreed location. Typical outputs:
+After validation passes, save to the detected/agreed location and tell the user:
 
-**For FluxCD:**
-- `HelmRepository` (if repo not already defined)
-- `HelmRelease` with values inline or reference to ConfigMap
+- Which files were created and where
+- How to apply or sync (e.g., `flux reconcile kustomization <name>` or `argocd app sync <name>`)
+- Post-deployment verification — see the Debugging sections of [references/argocd.md](references/argocd.md) / [references/flux.md](references/flux.md)
 
-**For ArgoCD:**
-- `Application` resource pointing to Helm chart
-- Optional: `AppProject` if project isolation needed
+## Error handling
 
-Always explain:
-- What files were created and where
-- How to apply/sync the changes
-- Any post-deployment verification steps (see the Debugging sections of [references/argocd.md](references/argocd.md) and [references/flux.md](references/flux.md))
+For unusual situations (deprecated chart, ambiguous repo layout, missing CRD dependencies, cluster not reachable for secrets detection), see [references/error-handling.md](references/error-handling.md).
 
-## Error Handling
-
-For common failure scenarios and recovery strategies, see [references/error-handling.md](references/error-handling.md).
-
-Key principle: **Don't guess** - ask the user for clarification with clear options and recommendations.
-
-Covered scenarios:
-- Web search failures (no chart, multiple charts, deprecated)
-- Repository structure ambiguity
-- Chart version issues
-- Secrets detection failures
-- Dependency issues
+Default principle: **don't guess** — surface the ambiguity with clear options and a recommendation.
