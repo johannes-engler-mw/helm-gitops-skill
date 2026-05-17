@@ -64,7 +64,9 @@ Decision rules:
 
 If the chart supports `existingSecret` / `auth.existingSecret`, prefer that pattern over `valuesFrom` — cleaner and chart-idiomatic. The web search in step 1 should have surfaced this.
 
-**Never write a real-looking secret value into Git.** Placeholder Secrets get an explicit warning header and a `# REPLACE THIS` value; never something that looks like a real token.
+**Don't generate anticipatory secret resources.** If the chart in its chosen configuration needs no credentials, skip Secret/ExternalSecret generation entirely. Template files written "for when the user later enables X" invite drift and confuse future readers about whether real credentials are required right now. When a future deployment actually needs the secret, the operator can add it then.
+
+**Never write a real-looking secret value into Git.** Placeholder Secrets get an explicit warning header and a clear marker value (e.g. `REPLACE_THIS`, `CHANGEME`, `<your-token>`); never something that looks like a real token. Use `stringData:` rather than `data:` so the marker stays human-readable — a reviewer skimming a Secret should notice the placeholder immediately, and base64-encoded placeholders defeat that.
 
 ## Gotchas to verify before saving
 
