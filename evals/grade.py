@@ -497,8 +497,18 @@ def check_no_real_secret_values(files: dict[str, str]) -> dict:
                     for k, v in block.items():
                         if not isinstance(v, str):
                             continue
-                        if len(v) >= 8 and not _looks_like_placeholder(v):
-                            real_values.append(f"{path}: Secret.{field}.{k} appears non-placeholder ({v[:20]!r})")
+                        # For data: fields the surface form is base64-encoded. Both the length
+                        # check (8+ chars to consider it a real credential) and the placeholder
+                        # marker check should operate on the decoded content, not the encoding.
+                        effective_value = v
+                        if field == "data":
+                            import base64
+                            try:
+                                effective_value = base64.b64decode(v, validate=True).decode("utf-8", errors="strict")
+                            except Exception:
+                                pass  # malformed base64; fall back to surface form
+                        if len(effective_value) >= 8 and not _looks_like_placeholder(effective_value):
+                            real_values.append(f"{path}: Secret.{field}.{k} appears non-placeholder ({effective_value[:20]!r})")
             elif kind == "HelmRelease":
                 values = (doc.get("spec") or {}).get("values") or {}
                 # Recursively scan for password-like keys with non-placeholder string values.
