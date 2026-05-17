@@ -384,6 +384,193 @@ GRADERS = {
 }
 
 
+# =========================================================================
+# Universal anti-pattern checks — run on every eval output
+# These detect silent-failure-mode defects the existing pass-rate doesn't catch.
+# Each check returns a passing assertion when no defect is found.
+# =========================================================================
+
+# Charts that ship CRDs and need Flux `crds: CreateReplace` (or `installCRDs: true` on
+# the chart's own values) to handle CRD upgrades cleanly. Missing this means CRDs are
+# installed once but never updated, which silently degrades the install over time.
+KNOWN_CRD_SHIPPING_CHARTS = {
+    "cert-manager",
+    "kube-prometheus-stack",
+    "prometheus-operator",
+    "external-secrets",
+    "gateway-api",
+    "istio-base",
+    "istiod",
+    "traefik",
+    "kong",
+    "opentelemetry-operator",
+    "grafana-operator",
+    "argo-cd",
+    "argo-workflows",
+    "tekton-pipeline",
+}
+
+# Patterns that mark a Secret value as an intentional placeholder, not a real credential.
+PLACEHOLDER_MARKERS = re.compile(
+    r"(PLACEHOLDER|placeholder|YOUR[_-]?|REPLACE|<[^>]+>|TODO|FIXME|CHANGE[_-]?ME|changeme|example[_-]?(token|password)|XXX+|\.\.\.|BEFORE[_-](APPLYING|COMMIT|COMMITTING)|INSERT[_-]HERE)",
+    re.IGNORECASE,
+)
+
+# Field names in chart values that are POINTERS to secret keys, not secret values themselves.
+# E.g. grafana.admin.passwordKey: "admin-password" tells the chart which key in the existingSecret
+# to read — the string "admin-password" is a key name, not a password.
+SECRET_REF_FIELD_NAMES = re.compile(r"(.*Key|existingSecret|secretName|secretRef|valueFrom)$")
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    """Return True if the string is clearly a placeholder, not a real credential."""
+    if PLACEHOLDER_MARKERS.search(value):
+        return True
+    # SCREAMING_SNAKE_CASE strings (all caps + underscores/dashes/digits) are placeholders
+    # by widespread convention. Real passwords almost never look like this.
+    if re.fullmatch(r"[A-Z0-9_-]+", value) and len(value) >= 4:
+        return True
+    return False
+
+
+def _parse_yaml_docs(content: str) -> list[dict]:
+    """Best-effort YAML doc parsing; returns [] if PyYAML unavailable or content invalid."""
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        return []
+    try:
+        return [d for d in yaml.safe_load_all(content) if isinstance(d, dict)]
+    except Exception:
+        return []
+
+
+def check_sourceref_namespace_match(files: dict[str, str]) -> dict:
+    """Flux HelmRelease.spec.chart.spec.sourceRef.namespace must match the HelmRepository's
+    metadata.namespace when both are in the same output set. Mismatch breaks reconciliation
+    silently — the HelmRelease just stays pending forever."""
+    helmrepos: dict[str, str] = {}  # name -> namespace
+    helmreleases: list[tuple[str, str, str]] = []  # (path, sourceref_name, sourceref_namespace)
+
+    for path, content in files.items():
+        for doc in _parse_yaml_docs(content):
+            kind = doc.get("kind")
+            if kind == "HelmRepository":
+                name = (doc.get("metadata") or {}).get("name")
+                ns = (doc.get("metadata") or {}).get("namespace")
+                if name and ns:
+                    helmrepos[name] = ns
+            elif kind == "HelmRelease":
+                source_ref = (((doc.get("spec") or {}).get("chart") or {}).get("spec") or {}).get("sourceRef") or {}
+                if source_ref.get("kind") == "HelmRepository":
+                    helmreleases.append((path, source_ref.get("name"), source_ref.get("namespace")))
+
+    mismatches: list[str] = []
+    for path, ref_name, ref_ns in helmreleases:
+        if ref_name in helmrepos:
+            actual_ns = helmrepos[ref_name]
+            # If sourceRef.namespace is set, it must match. If unset, Flux defaults to the
+            # HelmRelease's namespace — also a mismatch risk if repo is elsewhere.
+            if ref_ns is not None and ref_ns != actual_ns:
+                mismatches.append(f"{path}: sourceRef.namespace={ref_ns!r} but HelmRepository {ref_name!r} is in {actual_ns!r}")
+
+    return {
+        "text": "[static] No HelmRepository sourceRef.namespace mismatch (Flux silent reconcile-break gotcha)",
+        "passed": not mismatches,
+        "evidence": "; ".join(mismatches) if mismatches else f"checked {len(helmreleases)} HelmRelease(s) against {len(helmrepos)} HelmRepository(ies)",
+    }
+
+
+def check_no_real_secret_values(files: dict[str, str]) -> dict:
+    """Secret resources should contain placeholder values, never real-looking credentials.
+    A real-looking value is a 8+ char string under data/stringData that doesn't match a
+    placeholder marker pattern. Also check HelmRelease.spec.values for plaintext
+    password/token/apiKey fields with real-looking values."""
+    real_values: list[str] = []
+
+    for path, content in files.items():
+        for doc in _parse_yaml_docs(content):
+            kind = doc.get("kind")
+            if kind == "Secret":
+                for field in ("data", "stringData"):
+                    block = doc.get(field) or {}
+                    for k, v in block.items():
+                        if not isinstance(v, str):
+                            continue
+                        if len(v) >= 8 and not _looks_like_placeholder(v):
+                            real_values.append(f"{path}: Secret.{field}.{k} appears non-placeholder ({v[:20]!r})")
+            elif kind == "HelmRelease":
+                values = (doc.get("spec") or {}).get("values") or {}
+                # Recursively scan for password-like keys with non-placeholder string values.
+                # Skip *Key / existingSecret / secretName fields — those are pointers to a secret
+                # key NAME, not credential values themselves.
+                def _scan(obj, path_prefix=""):
+                    if isinstance(obj, dict):
+                        for k, v in obj.items():
+                            full_path = f"{path_prefix}.{k}" if path_prefix else k
+                            if SECRET_REF_FIELD_NAMES.match(k):
+                                continue  # this is a pointer field, not a value
+                            if isinstance(v, str) and re.search(r"(password|token|apikey|api_key|secret_key|secretkey)", k, re.IGNORECASE):
+                                if len(v) >= 8 and not _looks_like_placeholder(v):
+                                    real_values.append(f"{path}: HelmRelease.spec.values.{full_path} = plaintext credential ({v[:20]!r})")
+                            elif isinstance(v, (dict, list)):
+                                _scan(v, full_path)
+                    elif isinstance(obj, list):
+                        for i, item in enumerate(obj):
+                            _scan(item, f"{path_prefix}[{i}]")
+                _scan(values)
+
+    return {
+        "text": "[static] No real-looking secret values committed to manifests (placeholders only)",
+        "passed": not real_values,
+        "evidence": "; ".join(real_values[:3]) if real_values else "no plaintext credentials detected",
+    }
+
+
+def check_crds_create_replace(files: dict[str, str]) -> dict:
+    """For known CRD-shipping charts, the Flux HelmRelease must set install.crds: CreateReplace
+    and ideally upgrade.crds: CreateReplace too. Otherwise CRDs are installed once and never
+    upgraded — silent feature regressions over time."""
+    missing: list[str] = []
+    checked_charts: list[str] = []
+
+    for path, content in files.items():
+        for doc in _parse_yaml_docs(content):
+            if doc.get("kind") != "HelmRelease":
+                continue
+            chart = (((doc.get("spec") or {}).get("chart") or {}).get("spec") or {}).get("chart")
+            if chart not in KNOWN_CRD_SHIPPING_CHARTS:
+                continue
+            checked_charts.append(chart)
+            install_crds = (((doc.get("spec") or {}).get("install") or {}).get("crds"))
+            upgrade_crds = (((doc.get("spec") or {}).get("upgrade") or {}).get("crds"))
+            # Acceptable values: "Create", "CreateReplace", "Skip" (skip = manual mgmt, technically OK)
+            # We require at least install.crds is set to Create or CreateReplace
+            if install_crds not in ("Create", "CreateReplace"):
+                missing.append(f"{path}: chart={chart}, install.crds={install_crds!r} (need Create or CreateReplace)")
+            elif upgrade_crds not in ("Create", "CreateReplace"):
+                # Soft warning: install OK but upgrades will skip CRD updates
+                missing.append(f"{path}: chart={chart}, upgrade.crds={upgrade_crds!r} (need CreateReplace for clean upgrades)")
+
+    return {
+        "text": "[static] CRD-shipping charts have crds: CreateReplace on install + upgrade",
+        "passed": not missing,
+        "evidence": "; ".join(missing) if missing else (
+            f"checked CRD charts: {checked_charts}" if checked_charts else "no CRD-shipping charts in output (n/a)"
+        ),
+    }
+
+
+def run_universal_checks(outputs_dir: Path) -> list[dict]:
+    """Run all static anti-pattern checks against the outputs directory."""
+    files = read_all_files(outputs_dir)
+    return [
+        check_sourceref_namespace_match(files),
+        check_no_real_secret_values(files),
+        check_crds_create_replace(files),
+    ]
+
+
 def grade_outputs_dir(eval_dir: Path, run_name: str, outputs_dir: Path) -> dict | None:
     """Grade a single outputs/ dir; returns the grading.json dict or None."""
     metadata_file = eval_dir / "eval_metadata.json"
@@ -395,6 +582,7 @@ def grade_outputs_dir(eval_dir: Path, run_name: str, outputs_dir: Path) -> dict 
     if not grader:
         return None
     expectations = grader(outputs_dir)
+    expectations.extend(run_universal_checks(outputs_dir))
     passed = sum(1 for e in expectations if e["passed"])
     total = len(expectations)
     return {
@@ -412,7 +600,7 @@ def main() -> int:
         return 1
     overall = []
     for eval_dir in sorted(ITERATION_DIR.glob("eval-*")):
-        for run_name in ("with_skill", "without_skill"):
+        for run_name in ("with_skill", "without_skill", "old_skill"):
             config_dir = eval_dir / run_name
             if not config_dir.exists():
                 continue
