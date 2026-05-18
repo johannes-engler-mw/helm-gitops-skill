@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires kubectl for secrets detection; works with Claude Code, OpenAI Codex, and agentskills.io-compatible platforms
 metadata:
   author: Johannes Engler
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # Helm GitOps Deployment Skill
@@ -64,9 +64,17 @@ Decision rules:
 
 If the chart supports `existingSecret` / `auth.existingSecret`, prefer that pattern over `valuesFrom` — cleaner and chart-idiomatic. The web search in step 1 should have surfaced this.
 
-**Don't generate anticipatory secret resources.** If the chart in its chosen configuration needs no credentials, skip Secret/ExternalSecret generation entirely. Template files written "for when the user later enables X" invite drift and confuse future readers about whether real credentials are required right now. When a future deployment actually needs the secret, the operator can add it then.
+**Before adding any Secret/ExternalSecret/SealedSecret, ask: does the chart fail to install without it?**
 
-**Never write a real-looking secret value into Git.** Placeholder Secrets get an explicit warning header and a clear marker value (e.g. `REPLACE_THIS`, `CHANGEME`, `<your-token>`); never something that looks like a real token. Use `stringData:` rather than `data:` so the marker stays human-readable — a reviewer skimming a Secret should notice the placeholder immediately, and base64-encoded placeholders defeat that.
+- **Chart requires the user to supply** → generate a placeholder Secret. Examples: cert-manager's Cloudflare API token (ACME can't issue without it), OIDC client secrets the chart wires to a downstream IdP, S3 credentials when the user has explicitly enabled S3-backed storage.
+- **Chart auto-generates a default on install** → don't touch it. kube-prometheus-stack creates a random `kube-prometheus-stack-grafana` admin Secret on install; PostgreSQL operator charts generate their own bootstrap passwords; MinIO seeds a root key. The user reads these with `kubectl get secret`. Pre-creating a placeholder + wiring `existingSecret` forces the user to manage a credential they never asked to manage — and quietly turns `CHANGEME` into the actual password if they forget to override.
+- **User didn't mention auth/credentials at all** → don't introduce them. "Set up Prometheus and Grafana for monitoring" is not a request for admin-password management. "Deploy Loki for logs" is not a request for S3 credentials. When the user later wants to manage these, they'll ask — and that's when a real secrets backend (ESO, Sealed Secrets, SOPS) gets wired in, not a `CHANGEME` placeholder.
+
+When you do generate a placeholder Secret (case 1 only):
+
+- Use `stringData:` (not `data:`) so the marker is human-readable. A reviewer skimming a Secret should immediately notice the placeholder; base64-encoded `CHANGEME` defeats that.
+- Use a clear marker value (`REPLACE_THIS`, `CHANGEME`, `<your-token>`). Never a string that looks like a real token (random hex, JWT shape, dotted base64).
+- **Never inline a placeholder directly into Helm values** (`grafana.adminPassword: CHANGEME`, `auth.rootPassword: changeme`). Always generate a separate Secret resource and reference it via `existingSecret` / `valuesFrom` / `apiTokenSecretRef`. Inlined placeholders become the actual credential the moment the manifest is applied without an override, and they're invisible to secrets-scanning tools that look for kind: Secret.
 
 ## Gotchas to verify before saving
 
