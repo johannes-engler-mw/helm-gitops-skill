@@ -374,6 +374,336 @@ def grade_eval_3(outputs_dir: Path) -> list[dict]:
         "evidence": f"argocd={has_argo[0]}, flux={has_flux[0]}",
     })
 
+    # no_unrequested_grafana_creds — user asked for monitoring, not credential management.
+    # kube-prometheus-stack auto-generates a random Grafana admin Secret on install. Any
+    # placeholder Secret, inline adminPassword, or existingSecret reference is anticipation
+    # the user didn't ask for. See SKILL.md "user didn't mention auth/credentials" rule.
+    defects: list[str] = []
+    for path, content in files.items():
+        # inline adminPassword in HelmRelease values (or ArgoCD helm.values blob)
+        for m in re.finditer(r"^\s*adminPassword:\s*[\"']?([^\"'\n#]+)", content, re.MULTILINE):
+            defects.append(f"{path}: inline adminPassword={m.group(1).strip()!r}")
+        # Grafana-scoped existingSecret reference (anticipation in values block)
+        if re.search(r"grafana", content, re.IGNORECASE):
+            for m in re.finditer(r"existingSecret:\s*[\"']?([^\s\"']+)", content):
+                defects.append(f"{path}: grafana existingSecret={m.group(1)!r}")
+        # Standalone Secret/ExternalSecret/SealedSecret carrying grafana admin credentials
+        for doc in _parse_yaml_docs(content):
+            kind = doc.get("kind")
+            if kind not in ("Secret", "ExternalSecret", "SealedSecret"):
+                continue
+            name = ((doc.get("metadata") or {}).get("name") or "").lower()
+            if "grafana" in name and ("admin" in name or "credential" in name or "password" in name):
+                defects.append(f"{path}: unrequested {kind} {name!r}")
+                continue
+            for field in ("data", "stringData"):
+                block = doc.get(field) or {}
+                if any(re.search(r"admin[-_]?password", k, re.IGNORECASE) for k in block):
+                    defects.append(f"{path}: {kind} contains admin-password key")
+                    break
+    results.append({
+        "text": "No unrequested Grafana credential resources (chart auto-generates admin Secret; user asked for monitoring, not credential management)",
+        "passed": not defects,
+        "evidence": "; ".join(defects[:3]) if defects else "no Grafana credential anticipation detected",
+    })
+
+    return results
+
+
+def _has_inline_aws_creds(files: dict[str, str]) -> list[str]:
+    """Detect AWS access key / secret access key inlined into manifest values blocks
+    (HelmRelease.spec.values or ArgoCD Application.spec.source.helm.values). Returns a
+    list of evidence strings. Plain Secret resources are NOT a defect — only inlined
+    values are. Anchored on the *value*, not the key name."""
+    inline: list[str] = []
+    key_pat = re.compile(
+        r"^\s*(AWS_ACCESS_KEY_ID|aws_access_key_id|access_key_id|AWS_SECRET_ACCESS_KEY|aws_secret_access_key|secret_access_key|accessKey|secretKey)\s*:\s*[\"']?([^\"'\s#]+)",
+        re.MULTILINE,
+    )
+    for path, content in files.items():
+        # Skip files that ARE a Secret resource — values inside the Secret are expected
+        if re.search(r"^kind:\s*Secret\b", content, re.MULTILINE):
+            continue
+        for m in key_pat.finditer(content):
+            val = m.group(2).strip()
+            # Pointer fields like `*KeyRef`, `valueFrom`, `secretKeyRef` are not values
+            # The line preceding may also indicate a valueFrom block — check 200 chars back
+            ctx_start = max(0, m.start() - 200)
+            ctx = content[ctx_start:m.end()]
+            if re.search(r"valueFrom|secretKeyRef|envFrom|existingSecret", ctx):
+                continue
+            # Skip if value itself names a Secret ref (e.g. value: aws-credentials)
+            if PLACEHOLDER_MARKERS.search(val):
+                continue
+            if len(val) >= 4 and not val.endswith("Ref") and not val in ("aws", "true", "false"):
+                inline.append(f"{path}: {m.group(1)}={val[:24]!r}")
+    return inline
+
+
+def grade_eval_4(outputs_dir: Path) -> list[dict]:
+    """Loki with S3 backend — chart REQUIRES user-supplied AWS credentials.
+    Confirms skill still generates a secret resource when chart truly needs one,
+    and prefers ExternalSecret since ESO is in the fixture repo."""
+    files = read_all_files(outputs_dir)
+    results: list[dict] = []
+
+    # picked_flux
+    has_flux = regex_in_any(files, r"^kind:\s*HelmRelease")[0]
+    no_argo = not regex_in_any(files, r"^kind:\s*Application\b")[0]
+    results.append({
+        "text": "Generated manifests use FluxCD (kind: HelmRelease), not ArgoCD",
+        "passed": has_flux and no_argo,
+        "evidence": f"HelmRelease={has_flux}, no ArgoCD={no_argo}",
+    })
+
+    # pattern_d_layout
+    in_loki = any("/loki/" in p or p.startswith("infra/loki/") for p in files)
+    results.append({
+        "text": "Files written under infra/loki/ (Pattern D)",
+        "passed": in_loki,
+        "evidence": f"loki dir files: {[p for p in files if 'loki' in p.lower()][:3]}",
+    })
+
+    # loki_s3_backend_configured
+    has_bucket = has_in_any(files, "my-logs-2026")[0]
+    has_s3 = (
+        regex_in_any(files, r"\bs3:\s*$", ignore_case=False)[0]
+        or regex_in_any(files, r"\btype:\s*[\"']?s3\b", ignore_case=True)[0]
+        or regex_in_any(files, r"\bbackend:\s*[\"']?s3\b", ignore_case=True)[0]
+    )
+    has_region = has_in_any(files, "us-east-1")[0]
+    results.append({
+        "text": "Loki configured with S3 backend (bucket my-logs-2026, region us-east-1)",
+        "passed": has_bucket and has_s3 and has_region,
+        "evidence": f"bucket_named={has_bucket}, s3_config={has_s3}, region={has_region}",
+    })
+
+    # chart_version_pinned_current
+    found_version = None
+    for content in files.values():
+        m = re.search(r"\bversion:\s*[\"']?(\d+\.\d+\.\d+)", content)
+        if m:
+            found_version = m.group(1)
+            break
+    if found_version is None:
+        passed = False
+        evidence = "no version found"
+    else:
+        v = tuple(int(x) for x in found_version.split("."))
+        uses_community = has_in_any(files, "grafana-community")[0] or has_in_any(files, "community/loki")[0]
+        passed = (uses_community and v >= (13, 0, 0)) or v >= (7, 0, 0)
+        evidence = f"version={found_version}, uses_community={uses_community}"
+    results.append({
+        "text": "Loki chart version is pinned and current (community 14.x or grafana 7.x as of May 2026)",
+        "passed": passed,
+        "evidence": evidence,
+    })
+
+    # secret_resource_generated — the regression test
+    has_secret = regex_in_any(files, r"^kind:\s*(Secret|ExternalSecret|SealedSecret)\b")[0]
+    results.append({
+        "text": "Secret/ExternalSecret/SealedSecret resource generated (chart requires AWS creds when S3 backend is enabled)",
+        "passed": has_secret,
+        "evidence": "secret resource present" if has_secret else "no secret resource — chart cannot reach S3 without AWS creds",
+    })
+
+    # prefers_eso_when_available
+    has_es = regex_in_any(files, r"^kind:\s*ExternalSecret\b")[0]
+    results.append({
+        "text": "Generated secret is an ExternalSecret (ESO is installed in the fixture repo)",
+        "passed": has_es,
+        "evidence": "ExternalSecret found" if has_es else "no ExternalSecret — skill missed ESO preference from repo detection",
+    })
+
+    # no_inline_aws_creds
+    inline = _has_inline_aws_creds(files)
+    results.append({
+        "text": "AWS credentials are NOT inlined into HelmRelease values",
+        "passed": not inline,
+        "evidence": "; ".join(inline[:3]) if inline else "no inline AWS credentials detected",
+    })
+
+    return results
+
+
+def grade_eval_5(outputs_dir: Path) -> list[dict]:
+    """PostgreSQL with explicit Secret-managed auth.
+    User explicitly asks for credential management via Kubernetes Secret. Confirms skill
+    generates a secret resource and uses existingSecret pattern (no inline auth.password)."""
+    files = read_all_files(outputs_dir)
+    results: list[dict] = []
+
+    # picked_flux
+    has_flux = regex_in_any(files, r"^kind:\s*HelmRelease")[0]
+    results.append({
+        "text": "Generated manifests use FluxCD (kind: HelmRelease)",
+        "passed": has_flux,
+        "evidence": "HelmRelease found" if has_flux else "no HelmRelease found",
+    })
+
+    # pattern_d_layout — accept any infra/<dir>/ structure (postgres, postgresql, db, etc.)
+    component_dir_pat = re.compile(r"^(infra|infrastructure)/[^/]+/", re.IGNORECASE)
+    in_component_dir = any(component_dir_pat.search(p) for p in files)
+    results.append({
+        "text": "Files written under infra/<postgres-dir>/ (Pattern D)",
+        "passed": in_component_dir,
+        "evidence": f"component dir files: {[p for p in files if component_dir_pat.search(p)][:3]}",
+    })
+
+    # uses_existing_secret_pattern — auth.existingSecret or auth.existingSecretName
+    uses_existing = regex_in_any(files, r"existingSecret(Name)?:\s*[\"']?\S")[0]
+    inline_pwd = regex_in_any(files, r"^\s*password:\s*[\"']?[A-Za-z0-9_]+[\"']?\s*$", ignore_case=True)[0]
+    results.append({
+        "text": "HelmRelease wires auth.existingSecret — does NOT inline auth.password",
+        "passed": uses_existing and not inline_pwd,
+        "evidence": f"existingSecret={uses_existing}, inline_password={inline_pwd}",
+    })
+
+    # chart_version_pinned
+    pinned = regex_in_any(files, r"\bversion:\s*[\"']?\d+\.\d+")[0]
+    results.append({
+        "text": "PostgreSQL chart version is pinned",
+        "passed": pinned,
+        "evidence": "version pinned" if pinned else "no pinned version",
+    })
+
+    # secret_resource_generated
+    has_secret = regex_in_any(files, r"^kind:\s*(Secret|ExternalSecret|SealedSecret)\b")[0]
+    results.append({
+        "text": "Secret/ExternalSecret/SealedSecret resource generated (user explicitly requested credential management)",
+        "passed": has_secret,
+        "evidence": "secret resource present" if has_secret else "no secret resource — user explicitly asked for K8s Secret management",
+    })
+
+    # prefers_eso_when_available
+    has_es = regex_in_any(files, r"^kind:\s*ExternalSecret\b")[0]
+    results.append({
+        "text": "Generated secret is an ExternalSecret (ESO is installed in the fixture repo)",
+        "passed": has_es,
+        "evidence": "ExternalSecret found" if has_es else "no ExternalSecret — fell back to native Secret despite ESO",
+    })
+
+    # db_name_and_user_configured
+    has_db = has_in_any(files, "appdb")[0]
+    has_user = has_in_any(files, "appuser")[0]
+    results.append({
+        "text": "Database name 'appdb' and username 'appuser' configured in values",
+        "passed": has_db and has_user,
+        "evidence": f"appdb={has_db}, appuser={has_user}",
+    })
+
+    # no_inline_password — already covered by the existing_secret check, but make it explicit
+    # Look for any password: <real-looking-or-placeholder> directly in helm values
+    real_or_placeholder_inline = []
+    for path, content in files.items():
+        # Skip Secret resources — values there are expected
+        if re.search(r"^kind:\s*(Secret|ExternalSecret|SealedSecret)\b", content, re.MULTILINE):
+            continue
+        for m in re.finditer(r"^\s*(password|adminPassword|rootPassword):\s*[\"']?([^\"'\n#]+)", content, re.MULTILINE):
+            val = m.group(2).strip()
+            if val and not val.startswith("$") and val != "":
+                real_or_placeholder_inline.append(f"{path}: {m.group(1)}={val[:20]!r}")
+    results.append({
+        "text": "auth.password is NOT inlined with a placeholder value in HelmRelease values",
+        "passed": not real_or_placeholder_inline,
+        "evidence": "; ".join(real_or_placeholder_inline[:3]) if real_or_placeholder_inline else "no inline password in values",
+    })
+
+    return results
+
+
+def grade_eval_6(outputs_dir: Path) -> list[dict]:
+    """ExternalDNS with Route53, no IRSA — chart needs AWS credentials via Secret.
+    Fixture has no secrets backend, so a native placeholder Secret is the right answer."""
+    files = read_all_files(outputs_dir)
+    results: list[dict] = []
+
+    # picked_argocd
+    has_argo = regex_in_any(files, r"^kind:\s*Application\b")[0]
+    no_flux = not regex_in_any(files, r"^kind:\s*HelmRelease")[0]
+    results.append({
+        "text": "Generated manifests use ArgoCD (kind: Application), not Flux",
+        "passed": has_argo and no_flux,
+        "evidence": f"Application={has_argo}, no Flux HelmRelease={no_flux}",
+    })
+
+    # argocd_apps_path
+    in_apps = any("argocd/apps/" in p for p in files)
+    results.append({
+        "text": "ExternalDNS Application placed under argocd/apps/",
+        "passed": in_apps,
+        "evidence": f"argocd/apps files: {[p for p in files if 'argocd/apps' in p][:3]}",
+    })
+
+    # externaldns_aws_provider — accept both legacy string form (`provider: aws`) and the
+    # current structured-object form (`provider:\n  name: aws`) used by ExternalDNS chart v6+.
+    has_aws_provider = (
+        regex_in_any(files, r"provider:\s*[\"']?aws\b", ignore_case=True)[0]
+        or regex_in_any(files, r"provider:\s*\n\s+name:\s*[\"']?aws\b", ignore_case=True)[0]
+    )
+    results.append({
+        "text": "ExternalDNS values configure provider: aws (legacy string or structured object form)",
+        "passed": has_aws_provider,
+        "evidence": "provider=aws found" if has_aws_provider else "no provider=aws config",
+    })
+
+    # externaldns_domain_filter
+    has_domain = has_in_any(files, "example.com")[0]
+    results.append({
+        "text": "domainFilter (or similar) references example.com",
+        "passed": has_domain,
+        "evidence": "example.com referenced" if has_domain else "example.com not referenced",
+    })
+
+    # chart_version_pinned
+    pinned = regex_in_any(files, r"targetRevision:\s*[\"']?v?\d+\.\d+")[0]
+    results.append({
+        "text": "ExternalDNS Application targetRevision is pinned",
+        "passed": pinned,
+        "evidence": "pinned" if pinned else "no pinned targetRevision",
+    })
+
+    # secret_resource_generated — the regression test for case 1
+    has_secret = regex_in_any(files, r"^kind:\s*Secret\b")[0]
+    results.append({
+        "text": "Secret resource generated for AWS credentials (no IRSA; chart requires creds)",
+        "passed": has_secret,
+        "evidence": "Secret found" if has_secret else "no Secret — ExternalDNS cannot reach Route53 without AWS creds",
+    })
+
+    # secret_is_placeholder
+    placeholder_pat = re.compile(r"(REPLACE|PLACEHOLDER|CHANGEME|<.*>|YOUR[_-]?|TODO|FIXME)", re.IGNORECASE)
+    warning_pat = re.compile(r"(WARNING|DO NOT|placeholder|TODO|replace)", re.IGNORECASE)
+    secret_files = [(p, c) for p, c in files.items() if re.search(r"^kind:\s*Secret\b", c, re.MULTILINE)]
+    placeholder_ok = False
+    real_looking = False
+    for path, content in secret_files:
+        if placeholder_pat.search(content) and warning_pat.search(content):
+            placeholder_ok = True
+        # AWS access keys look like AKIA + 16 alphanum
+        if re.search(r"AKIA[0-9A-Z]{16}", content):
+            real_looking = True
+    if not secret_files:
+        results.append({
+            "text": "Secret contains placeholder values + warning header (no real-looking AWS key)",
+            "passed": False,
+            "evidence": "no Secret resource to inspect (failed prior assertion)",
+        })
+    else:
+        results.append({
+            "text": "Secret contains placeholder values + warning header (no real-looking AWS key)",
+            "passed": placeholder_ok and not real_looking,
+            "evidence": f"placeholder+warning={placeholder_ok}, real-looking_key={real_looking}",
+        })
+
+    # no_inline_aws_creds
+    inline = _has_inline_aws_creds(files)
+    results.append({
+        "text": "AWS credentials are NOT inlined into the helm.values block",
+        "passed": not inline,
+        "evidence": "; ".join(inline[:3]) if inline else "no inline AWS credentials detected",
+    })
+
     return results
 
 
@@ -381,6 +711,9 @@ GRADERS = {
     1: grade_eval_1,
     2: grade_eval_2,
     3: grade_eval_3,
+    4: grade_eval_4,
+    5: grade_eval_5,
+    6: grade_eval_6,
 }
 
 

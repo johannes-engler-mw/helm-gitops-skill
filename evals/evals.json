@@ -49,7 +49,61 @@
         {"name": "pattern_d_recommended", "text": "Output structure groups manifests in a component directory under infra/ or infrastructure/"},
         {"name": "chart_version_pinned", "text": "Chart version pinned to a specific release"},
         {"name": "chart_version_current", "text": "kube-prometheus-stack chart version is current (within ~5 minors of 85.x as of May 2026)"},
-        {"name": "manifests_match_chosen_tool", "text": "Generated manifests use the right CRDs for the chosen tool (no mixing)"}
+        {"name": "manifests_match_chosen_tool", "text": "Generated manifests use the right CRDs for the chosen tool (no mixing)"},
+        {"name": "no_unrequested_grafana_creds", "text": "No unrequested Grafana credential resources (placeholder Secret, inline adminPassword, or existingSecret reference) — chart auto-generates admin Secret on install and user did not ask for credential management"}
+      ],
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "loki-s3-backend-secret-required",
+      "prompt": "I want to add Loki for log aggregation, configured with S3-backed storage so we can keep logs long-term. The bucket is my-logs-2026 in us-east-1. Our GitOps repo is at <FIXTURE_PATH>.",
+      "expected_output": "FluxCD HelmRelease for Loki configured with S3 storage backend (bucket my-logs-2026, region us-east-1), under infra/loki/. Since S3 access requires AWS credentials the user must supply AND the fixture has ESO installed, the skill should generate an ExternalSecret referencing the existing ClusterSecretStore — not a placeholder native Secret. AWS credentials must never be inlined in HelmRelease values.",
+      "fixture_path": "evals/fixtures/eval-1-flux-pattern-d-eso",
+      "assertions": [
+        {"name": "picked_flux", "text": "Generated manifests use FluxCD (kind: HelmRelease), not ArgoCD"},
+        {"name": "pattern_d_layout", "text": "Files written under infra/loki/ (Pattern D component-based layout)"},
+        {"name": "loki_s3_backend_configured", "text": "Loki HelmRelease values configure S3 storage backend (bucket my-logs-2026 referenced, region us-east-1)"},
+        {"name": "chart_version_pinned_current", "text": "Loki chart version is pinned to a current release (grafana-community 14.x or grafana 7.x as of May 2026)"},
+        {"name": "secret_resource_generated", "text": "Some Secret/ExternalSecret/SealedSecret resource is generated for AWS credentials (chart REQUIRES creds when S3 backend is enabled — case 1 of the anti-anticipation rule)"},
+        {"name": "prefers_eso_when_available", "text": "Generated secret resource is an ExternalSecret referencing the existing ClusterSecretStore (since ESO is detected in the fixture repo)"},
+        {"name": "no_inline_aws_creds", "text": "AWS access key / secret access key are NOT inlined into HelmRelease values — must come from a Secret reference"}
+      ],
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "postgresql-with-explicit-auth",
+      "prompt": "Deploy PostgreSQL for our backend service. We need to manage the database password via a Kubernetes Secret so we can rotate it later. Database name should be appdb, username appuser. Our GitOps repo is at <FIXTURE_PATH>.",
+      "expected_output": "FluxCD HelmRelease for PostgreSQL under infra/postgresql/ (or similar Pattern D dir) with auth.existingSecret reference (NOT inlined auth.password). Database name 'appdb' and username 'appuser' configured in HelmRelease values. Since the fixture has ESO installed and the user explicitly wants Secret-managed credentials, an ExternalSecret should be generated.",
+      "fixture_path": "evals/fixtures/eval-1-flux-pattern-d-eso",
+      "assertions": [
+        {"name": "picked_flux", "text": "Generated manifests use FluxCD (kind: HelmRelease)"},
+        {"name": "pattern_d_layout", "text": "Files under infra/<postgres-dir>/ (Pattern D)"},
+        {"name": "uses_existing_secret_pattern", "text": "HelmRelease wires auth.existingSecret (or similar) — does NOT inline auth.password directly"},
+        {"name": "chart_version_pinned", "text": "PostgreSQL chart version is pinned"},
+        {"name": "secret_resource_generated", "text": "Some Secret/ExternalSecret/SealedSecret resource is generated (user EXPLICITLY requested Kubernetes-Secret-managed credentials)"},
+        {"name": "prefers_eso_when_available", "text": "Generated secret resource is an ExternalSecret (since ESO is detected in the fixture repo)"},
+        {"name": "db_name_and_user_configured", "text": "Database name 'appdb' and username 'appuser' appear in HelmRelease values"},
+        {"name": "no_inline_password", "text": "auth.password (or password key) is NOT inlined with a placeholder value like 'changeme' in HelmRelease values"}
+      ],
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "externaldns-route53-needs-aws-creds",
+      "prompt": "Deploy ExternalDNS to manage Route53 records for our cluster. We're on AWS but NOT using IRSA. Domain to manage: example.com. Our GitOps repo is at <FIXTURE_PATH>.",
+      "expected_output": "ArgoCD Application for ExternalDNS in argocd/apps/. ExternalDNS values configured with provider: aws and a domainFilter for example.com. Since the user is not using IRSA (so credentials must be supplied) AND the fixture has no secrets backend, a native Kubernetes Secret with placeholder values for AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY should be generated with a clear warning header. AWS credentials must never be inlined into the helm.values block.",
+      "fixture_path": "evals/fixtures/eval-2-argocd-no-secrets",
+      "assertions": [
+        {"name": "picked_argocd", "text": "Generated manifests use ArgoCD (kind: Application), not Flux"},
+        {"name": "argocd_apps_path", "text": "ExternalDNS Application placed under argocd/apps/"},
+        {"name": "externaldns_aws_provider", "text": "ExternalDNS values configure provider: aws"},
+        {"name": "externaldns_domain_filter", "text": "domainFilter (or similar) references example.com"},
+        {"name": "chart_version_pinned", "text": "ExternalDNS chart's targetRevision is pinned"},
+        {"name": "secret_resource_generated", "text": "A Secret resource is generated for AWS credentials (user not on IRSA; chart REQUIRES creds — case 1 of the anti-anticipation rule)"},
+        {"name": "secret_is_placeholder", "text": "Generated Secret contains placeholder values (REPLACE_THIS, CHANGEME, etc) and a warning header — never a real-looking AWS key"},
+        {"name": "no_inline_aws_creds", "text": "AWS access key / secret access key are NOT inlined directly into the helm.values block"}
       ],
       "files": []
     }
